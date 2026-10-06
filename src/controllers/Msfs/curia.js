@@ -1,3 +1,4 @@
+import { officePersonDetails } from '../../utils/officePersonDetails.js';
 import { resolveAuthorizedProvince } from '../../services/confrereCreationService.js';
 import { officeCategories, validateOfficeSelections } from '../../utils/officeTypes.js';
 import { PrismaClient } from '@prisma/client';
@@ -812,7 +813,7 @@ export async function getCuriaAdvisor(req, res) {
       select: {
         first_name: true,
         last_name: true,
-        middle_name: true,
+        middle_name: true, confrer_code: true, personal1_isd: true, personal1_contact_no: true,
       },
     });
 
@@ -849,6 +850,7 @@ export async function getCuriaAdvisor(req, res) {
     // Combine the curia advisor details with additional data
     const jsonResponse = {
       ...jsonifyBigInt(curiaAdvisor),
+      ...await officePersonDetails(prisma, confrere),
       province_name: province?.province_name || curiaAdvisor.province_code,
       division_type_name: divisionTypeQuickcode?.quickcode_name || curiaAdvisor.division_type_code,
       designation_name: designationQuickcode?.quickcode_name || curiaAdvisor.designation_code,

@@ -9,7 +9,7 @@ export async function recordWhere(req, prisma, key, { gcicRead = false } = {}) {
   }
   const scope = provinceScopeWhere(provinceCodes);
   const access = gcicRead && req.method === 'GET'
-    ? { OR: [scope, await officeRecordWhere(prisma, 'GCIC')] }
+    ? { OR: [scope, await officeRecordWhere(prisma, 'GCIC'), await officeRecordWhere(prisma, 'PCIC')] }
     : scope;
   return { AND: [identity, access] };
 }

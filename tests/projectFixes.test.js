@@ -65,7 +65,7 @@ test('Curia create, edit, raw read and view persist GCIC, while legacy null rema
  const invalid=response();await api.updateCuriaAdvisorDetails({...req,body:{...req.body,gcic_off_code:'wrong'}},invalid);assert.equal(invalid.statusCode,400);
 });
 
-test('PCIC count is provincial; GCIC count/popup are global and exclude inactive people and blank selections',async()=>{
+test('PCIC and GCIC count/popup are global and exclude inactive people and blank selections',async()=>{
  const {db,tables}=fixtures();
  tables.curia_advisors_dtl.push(
   {...curiaBody,curia_code:'A'},
@@ -73,7 +73,7 @@ test('PCIC count is provincial; GCIC count/popup are global and exclude inactive
   {...curiaBody,curia_code:'C',province_code:'P2',confrer_code:'DEAD2024001'},
   {...curiaBody,curia_code:'D',gcic_off_code:'',pcic_off_code:null});
  const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
- for(const [type,count] of [['PCIC',1],['GCIC',2]]) {
+ for(const [type,count] of [['PCIC',2],['GCIC',2]]) {
   const res=response();await api.getDashboardDetails(request({type,exportAll:true}),res);
   assert.equal(res.statusCode,200,JSON.stringify(res.body));assert.equal(res.body.total,count);assert.equal(res.body.records.length,count);
   const card=response();await api.getDashboardDetails(request({type,pageSize:1}),card);assert.equal(card.body.total,count);
@@ -81,11 +81,11 @@ test('PCIC count is provincial; GCIC count/popup are global and exclude inactive
  const global=await officeRecordWhere(db,'GCIC',{province_code:'P1'});assert.equal(global.province_code,undefined);
 });
 
-test('only GCIC record reads cross province boundaries; writes and other records remain scoped',async()=>{
+test('PCIC and GCIC record reads cross province boundaries; writes and other records remain scoped',async()=>{
  const {db}=fixtures();const row={...curiaBody,curia_code:'B',province_code:'P2',confrer_code:'DIB2024001'};
  const req=request({},'GET');req.query={province_code:'P2',confrer_code:'DIB2024001'};
  assert.ok(matches(row,await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
- assert.ok(!matches({...row,gcic_off_code:null},await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
+ assert.ok(!matches({...row,gcic_off_code:null,pcic_off_code:null},await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
  assert.ok(!matches(row,await recordWhere({...req,method:'PUT'},db,{curia_code:'B'},{gcicRead:true})));
  assert.ok(!matches(row,await recordWhere(req,db,{curia_code:'B'})));
  const where=await recordWhere({...req,query:{confrer_code:'other'}},db,{confrer_code:'VIZAG2024009'});assert.equal(where.AND[0].confrer_code,'VIZAG2024009');
@@ -182,4 +182,29 @@ for (const selection of [null, '', undefined]) test(`Curia accepts optional PCIC
  const updated=response(); await api.updateCuriaAdvisorDetails(req,updated);
  assert.equal(updated.statusCode,200,JSON.stringify(updated.body));
  assert.equal(updated.body.pcic_off_code,null); assert.equal(updated.body.gcic_off_code,null);
+});
+
+
+test('both office drilldowns search globally and use linked contacts and every current designation', async () => {
+ const {db,tables}=fixtures();
+ Object.assign(tables.confreres_dtl[1], {personal1_isd:'+91',personal1_contact_no:'9876543210'});
+ tables.quickcode_mst.push({quick_code_type:'destyp',quick_code:'DES2',quickcode_name:'Rector'});
+ tables.appoint_transfer_dtl.push(
+  {confrer_code:'DIB2024001',designation_code:'DES',is_active:true,designation_end_date:null},
+  {confrer_code:'DIB2024001',designation_code:'DES2',is_active:true,designation_end_date:null},
+  {confrer_code:'DIB2024001',designation_code:'OLD',is_active:true,designation_end_date:'2020-01-01'});
+ tables.curia_advisors_dtl.push({...curiaBody,curia_code:'B',province_code:'P2',confrer_code:'DIB2024001'});
+ const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
+ for(const type of ['PCIC','GCIC']) {
+  const res=response(); await api.getDashboardDetails(request({type,search:'9876543210'}),res);
+  assert.equal(res.statusCode,200); assert.equal(res.body.scopeLabel,'ALL'); assert.equal(res.body.filteredTotal,1);
+  assert.equal(res.body.records[0].mobile_number,'+91 9876543210');
+  assert.equal(res.body.records[0].current_designations,'DES, Rector');
+ }
+ const curia=await loadController('../../src/controllers/Msfs/curia.js',db);
+ const req=request({},'GET');req.curiaRecord=tables.curia_advisors_dtl[0]; const res=response();await curia.getCuriaAdvisor(req,res);
+ assert.equal(res.body.mobile_number,'+91 9876543210'); assert.equal(res.body.current_designations,'DES, Rector');
+ delete tables.confreres_dtl[1].personal1_contact_no;tables.appoint_transfer_dtl.length=0;
+ const missing=response();await curia.getCuriaAdvisor(req,missing);
+ assert.equal(missing.body.mobile_number,'Not available');assert.equal(missing.body.current_designations,'Not available');
 });

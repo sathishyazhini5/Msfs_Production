@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 export const filterFields = {
   confrere: ['province_code', 'division', 'member_type_code', 'designation_code', 'nationality_code'],
+  scholastic: ['province_code', 'division', 'member_type_code', 'nationality_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'],
   centre: ['province_code', 'division', 'apostolate_code', 'centre_type_code', 'diocese_code', 'community_house_code', 'state', 'country_code'],
   obituary: ['province_code'],
 };
@@ -36,7 +37,7 @@ export const loadDirectoryOptions = async (prisma, kind, codes, filters) => {
   if (kind === 'obituary') return { province_code: uniqueOptions(provinces.map((p) => option(p.province_code, p.province_name))) };
   const [divisions, quickcodes] = await Promise.all([
     prisma.division_setup_mst.findMany({ where: scoped, select: { province_code: true, division_type_code: true, division_code: true, division_name: true } }),
-    prisma.quickcode_mst.findMany({ where: { quick_code_type: { in: ['memtyp', 'destyp', 'natlty', 'diocse'] } }, select: { quick_code_type: true, quick_code: true, quickcode_name: true } }),
+    prisma.quickcode_mst.findMany({ where: { quick_code_type: { in: ['memtyp', 'destyp', 'natlty', 'diocse', 'schtyp', 'fortyp', 'yrform'] } }, select: { quick_code_type: true, quick_code: true, quickcode_name: true } }),
   ]);
   const options = {
     province_code: uniqueOptions(provinces.map((p) => option(p.province_code, p.province_name))),
@@ -44,6 +45,7 @@ export const loadDirectoryOptions = async (prisma, kind, codes, filters) => {
   };
   const quick = (type) => uniqueOptions(quickcodes.filter((q) => q.quick_code_type === type).map((q) => option(q.quick_code, q.quickcode_name)));
   if (kind === 'confrere') return { ...options, member_type_code: quick('memtyp'), designation_code: quick('destyp'), nationality_code: quick('natlty') };
+  if (kind === 'scholastic') return { ...options, member_type_code: quick('memtyp'), nationality_code: quick('natlty'), scholastic_type_code: quick('schtyp'), formation_type_code: quick('fortyp'), year_formation_code: quick('yrform') };
   let division = null;
   if (filters.division) {
     const row = divisions.find((d) => JSON.stringify([d.province_code, d.division_type_code, d.division_code]) === filters.division);
@@ -71,12 +73,12 @@ export const loadDirectoryOptions = async (prisma, kind, codes, filters) => {
 export const directorySql = (kind, filters, codes) => {
   const clauses = [scopeSql('r', codes)];
   if (filters.province_code) clauses.push(Prisma.sql`r.province_code = ${filters.province_code}`);
-  if (kind === 'confrere') clauses.push(Prisma.sql`r.is_active = TRUE`);
+  if (['confrere', 'scholastic'].includes(kind)) clauses.push(Prisma.sql`r.is_active = TRUE`);
   if (kind === 'obituary') {
     if (filters.death_date) clauses.push(Prisma.sql`r.death_date::date = ${filters.death_date}::date`);
     else if (filters.mode !== 'all') clauses.push(Prisma.sql`r.death_date::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`);
   }
-  for (const field of filterFields[kind].filter((f) => !['province_code', 'division', 'state', 'designation_code'].includes(f))) {
+  for (const field of filterFields[kind].filter((f) => !['province_code', 'division', 'state', 'designation_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'].includes(f))) {
     if (filters[field]) clauses.push(Prisma.sql`${Prisma.raw(`r.${field}`)} = ${filters[field]}`);
   }
   if (filters.state) {
@@ -86,26 +88,30 @@ export const directorySql = (kind, filters, codes) => {
   const appointment = [];
   if (filters.division) {
     const [province, type, division] = JSON.parse(filters.division);
-    const alias = kind === 'confrere' ? 'a' : 'r';
+    const alias = ['confrere', 'scholastic'].includes(kind) ? 'a' : 'r';
     clauses.push(Prisma.sql`r.province_code = ${province}`);
     const clause = Prisma.sql`${Prisma.raw(`${alias}.province_code`)} = ${province} AND ${Prisma.raw(`${alias}.division_type_code`)} = ${type} AND ${Prisma.raw(`${alias}.division_code`)} = ${division}`;
-    if (kind === 'confrere') appointment.push(clause); else clauses.push(clause);
+    if (['confrere', 'scholastic'].includes(kind)) appointment.push(clause); else clauses.push(clause);
+  }
+  if (kind === 'scholastic') {
+    for (const field of ['scholastic_type_code', 'formation_type_code', 'year_formation_code']) if (filters[field]) appointment.push(Prisma.sql`${Prisma.raw(`a.${field}`)} = ${filters[field]}`);
+    if (appointment.length) clauses.push(Prisma.sql`EXISTS (SELECT 1 FROM scholastics_admisn_promon_dtl a WHERE a.scholastic_code = r.scholastic_code AND a.province_code = r.province_code AND a.end_date IS NULL AND ${scopeSql('a', codes)} AND ${Prisma.join(appointment, ' AND ')})`);
   }
   if (filters.designation_code) appointment.push(Prisma.sql`a.designation_code = ${filters.designation_code}`);
-  if (appointment.length) clauses.push(Prisma.sql`EXISTS (SELECT 1 FROM appoint_transfer_dtl a WHERE a.confrer_code = r.confrer_code AND a.province_code = r.province_code AND a.is_active = TRUE AND ${scopeSql('a', codes)} AND ${Prisma.join(appointment, ' AND ')})`);
-  const name = kind === 'centre' ? Prisma.sql`r.centre_name` : kind === 'confrere'
+  if (kind !== 'scholastic' && appointment.length) clauses.push(Prisma.sql`EXISTS (SELECT 1 FROM appoint_transfer_dtl a WHERE a.confrer_code = r.confrer_code AND a.province_code = r.province_code AND a.is_active = TRUE AND ${scopeSql('a', codes)} AND ${Prisma.join(appointment, ' AND ')})`);
+  const name = kind === 'centre' ? Prisma.sql`r.centre_name` : ['confrere', 'scholastic'].includes(kind)
     ? Prisma.sql`btrim(concat_ws(' ', r.first_name, r.middle_name, r.last_name))`
     : Prisma.sql`btrim(regexp_replace(coalesce(nullif(btrim(concat_ws(' ', coalesce(c.first_name, s.first_name), coalesce(c.middle_name, s.middle_name), coalesce(c.last_name, s.last_name))), ''), nullif(btrim(r.disease_name), ''), 'Name unavailable'), '[[:space:]]+', ' ', 'g'))`;
   if (filters.search) {
     const pattern = `%${filters.search.replace(/[\\%_]/g, '\\$&')}%`;
     clauses.push(Prisma.sql`${name} ILIKE ${pattern}`);
   }
-  const table = { confrere: 'confreres_dtl', centre: 'centre_dtl', obituary: 'obituary_dtl' }[kind];
+  const table = { confrere: 'confreres_dtl', scholastic: 'scholastics_dtl', centre: 'centre_dtl', obituary: 'obituary_dtl' }[kind];
   // Confrere codes are globally unique; scholastic codes have province ownership.
   // Legacy obituary imports store the deceased's name in disease_name when no relation exists.
   const joins = kind === 'obituary' ? Prisma.sql`LEFT JOIN confreres_dtl c ON c.confrer_code = r.confrer_scholastic_code LEFT JOIN scholastics_dtl s ON s.scholastic_code = r.confrer_scholastic_code AND s.province_code = r.province_code` : Prisma.empty;
   const from = Prisma.sql`FROM ${Prisma.raw(table)} r LEFT JOIN province_mst p ON p.province_code = r.province_code ${joins} WHERE ${Prisma.join(clauses, ' AND ')}`;
-  const id = Prisma.raw(`r.${kind === 'confrere' ? 'confrer_code' : kind === 'centre' ? 'centre_code' : 'obituary_code'}`);
+  const id = Prisma.raw(`r.${kind === 'confrere' ? 'confrer_code' : kind === 'scholastic' ? 'scholastic_code' : kind === 'centre' ? 'centre_code' : 'obituary_code'}`);
   const extra = kind === 'centre' ? Prisma.sql`r.division_type_code, r.division_code, r.centre_place,` : kind === 'obituary' ? Prisma.sql`r.confrer_scholastic_code, r.death_date, r.death_place, r.member_type_code,` : Prisma.sql`r.member_type_code, r.image_file_path,`;
   return {
     count: Prisma.sql`SELECT count(*)::int AS total ${from}`,

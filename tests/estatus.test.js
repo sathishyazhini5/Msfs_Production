@@ -157,3 +157,34 @@ test('current Centre resolves complete assignment identity, excludes inactive/en
   const empty = response(); await getConfrere(req, empty);
   assert.equal(empty.body.current_centre_name, 'Not assigned');
 });
+
+
+test('Scholastics filters combine on one current admission with province identity and shared pagination', async () => {
+ const filters=parseDirectoryQuery('scholastic',{province_code:'P1',division:JSON.stringify(['P1','T','D']),member_type_code:'MEM',nationality_code:'NAT',scholastic_type_code:'SCH',formation_type_code:'FOR',year_formation_code:'YR',search:'John',page:'2',pageSize:'10'});
+ const {rows,count}=directorySql('scholastic',filters,['P1']);
+ assert.match(rows.text,/FROM scholastics_dtl/);assert.match(rows.text,/r.is_active = TRUE/);
+ assert.match(rows.text,/EXISTS .*scholastics_admisn_promon_dtl/);
+ assert.match(rows.text,/a.scholastic_code = r.scholastic_code AND a.province_code = r.province_code AND a.end_date IS NULL/);
+ for(const field of ['scholastic_type_code','formation_type_code','year_formation_code']) assert.match(rows.text,new RegExp('a\\.'+field+' ='));
+ assert.ok(rows.values.includes('SCH'));assert.ok(rows.values.includes('FOR'));assert.ok(rows.values.includes('YR'));
+ assert.deepEqual(rows.values.slice(-2),[10,10]);assert.ok(!count.text.includes('LIMIT'));
+ assert.match(directorySql('scholastic',{page:1,pageSize:20},[]).rows.text,/WHERE FALSE/);
+ const options=await loadDirectoryOptions({...db,quickcode_mst:{findMany:async()=>[{quick_code_type:'schtyp',quick_code:'SCH',quickcode_name:'Theology'}]}},'scholastic',['P1'],{});
+ assert.deepEqual(options.scholastic_type_code,[{value:'SCH',label:'Theology'}]);
+ await assert.rejects(fetchDirectory(db,'scholastic',{page:1,pageSize:20,scholastic_type_code:'UNKNOWN'},['P1']),{status:400});
+});
+
+
+test('Scholastic global detail retains province ownership for duplicate codes and related data', async()=>{
+ const identity={scholastic_code:'S1',province_code:'P2'};
+ const empty={findMany:async()=>[]};
+ const prisma={
+  scholastics_dtl:{findFirst:async({where})=>{assert.deepEqual(where,identity);return {...identity,first_name:'Selected',last_name:'Person',personal1_contact_no:123n};}},
+  quickcode_mst:{findFirst:async()=>null},province_mst:{findFirst:async()=>({province_name:'Province Two'})},
+  scholastics_feedback_dtl:{findMany:async({where})=>{assert.deepEqual(where,identity);return [];}},
+  scholastics_admisn_promon_dtl:empty,scholastics_admisn_his_dtl:empty,
+ };
+ const api=await loadController('../../src/controllers/Msfs/scholastics.js',prisma);
+ const req={method:'GET',params:{scholastic_code:'S1'},query:{},headers:{}};setEstatusRecordWhere(req,identity);
+ const res=response();await api.getScholasticDetails(req,res);assert.equal(res.statusCode,200);assert.equal(res.body.province_code,'P2');assert.equal(res.body.personal1_contact_no,'123');
+});

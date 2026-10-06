@@ -1,3 +1,4 @@
+import { estatusRecordWhere } from '../../utils/estatusAccess.js';
 import { recordWhere } from '../../utils/recordAccess.js';
 import { PrismaClient } from '@prisma/client';
 import upload from '../../middlewares/multer.js';
@@ -858,7 +859,7 @@ export const getScholasticDetails = async (req, res) => {
     if (scholastic_code) {
       // Get the scholastic detail by scholastic_code using findFirst
       const scholastic = await prisma.scholastics_dtl.findFirst({
-        where: await recordWhere(req, prisma, { scholastic_code }),
+        where: estatusRecordWhere(req) || await recordWhere(req, prisma, { scholastic_code }),
       });
 
       if (!scholastic) {

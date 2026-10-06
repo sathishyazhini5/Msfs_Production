@@ -42,3 +42,8 @@ logs/
 
 debug/
 error/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log

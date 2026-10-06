@@ -1,3 +1,4 @@
+import { getScholasticDetails } from '../controllers/Msfs/scholastics.js';
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { sendScopeError } from '../utils/dataScope.js';
@@ -14,6 +15,7 @@ estatusRouter.get('/estatus/:kind/record/:code', async (req, res, next) => {
     requireEstatusAccess(req);
     const definitions = {
       confrere: ['confreres_dtl', 'confrer_code', ['province_code'], getConfrere],
+      scholastic: ['scholastics_dtl', 'scholastic_code', ['province_code'], getScholasticDetails],
       centre: ['centre_dtl', 'centre_code', ['province_code', 'division_type_code', 'division_code'], getcenterdetails],
       obituary: ['obituary_dtl', 'obituary_code', ['province_code', 'confrer_scholastic_code'], getObituary],
     };
