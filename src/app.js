@@ -19,6 +19,18 @@ import { indexRouter } from './routes/index.js';
 import { sendTodayAnniversaries } from './controllers/Msfs/anniversarynotification.js'
 import './middlewares/anniversaryJob.js'
 
+import {PrismaClient} from '@prisma/client';
+import {CircularQueue} from './services/circularQueue.js';
+import {createCircularWorkerRuntime} from './workers/circularWorkerRuntime.js';
+import {sendCircularEmail,circularMailConfigured} from './middlewares/emailService.js';
+import {downloadCircularBlob} from './middlewares/azureBlob.js';
+
+const circularDb=new PrismaClient();
+const circularWorker=createCircularWorkerRuntime({
+  db:circularDb,
+  queue:new CircularQueue({db:circularDb,send:sendCircularEmail,download:downloadCircularBlob,concurrency:process.env.CIRCULAR_WORKER_CONCURRENCY}),
+  enabled:()=>process.env.CIRCULAR_WORKER_ENABLED==='true',mailReady:circularMailConfigured,log:logger,
+});
 const app = express();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -115,8 +127,24 @@ process.on('uncaughtException', (err) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server=app.listen(PORT, () => {
+  circularWorker.start().catch(error=>logger.error(`Circular worker initialization failed: ${error.code || error.name}`));
   logger.info(`🚀 Server is running on http://localhost:${PORT}`);
 });
+
+let shutdown;
+const stopBackend=()=>{
+  if(shutdown)return shutdown;
+  logger.info('Stopping API and draining the circular worker...');
+  shutdown=Promise.all([
+    new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve())),
+    circularWorker.stop(),
+  ]).then(()=>process.exit(0)).catch(error=>{
+    logger.error(`Backend shutdown failed: ${error.code || error.name}`);process.exit(1);
+  });
+  return shutdown;
+};
+process.once('SIGINT',stopBackend);
+process.once('SIGTERM',stopBackend);
 
 export default app;

@@ -109,3 +109,13 @@ export const sendRichEmail = async ({ to, subject, text, html  }) => {
     throw new Error('Failed to send rich email');
   }
 };
+
+// Reuse the existing account configuration with bounded circular-only timeouts.
+const circularTransport = nodemailer.createTransport({...transporter.options, connectionTimeout:30000, greetingTimeout:30000, socketTimeout:60000});
+// One envelope per recipient; never add CC/BCC or log recipient addresses.
+export const circularMailConfigured = () => Boolean(process.env.GMAIL_USER && process.env.GMAIL_PASS);
+export const sendCircularEmail = async ({to, subject, text, attachment, messageId}) => {
+  if (!circularMailConfigured()) throw Object.assign(new Error('Circular email credentials are not configured.'), {code:'ECONFIG', command:'CONN'});
+  return circularTransport.sendMail({from: `"MSFS eStatus" <${process.env.GMAIL_USER}>`, to, subject, text, messageId,
+    attachments: [{filename: attachment.filename, content: attachment.buffer, contentType: attachment.mime_type}]});
+};

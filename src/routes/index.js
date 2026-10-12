@@ -55,6 +55,7 @@ import { globalSearchRouter } from './globalSearch.js';
 import { notificationRouter } from './notifications.js';
 import { activityRouter } from './activities.js';
 import { reportsRouter } from './reports.js';
+import { circularsRouter } from './circulars.js';
 
 
 
@@ -125,5 +126,6 @@ router.use(globalSearchRouter)
 router.use(notificationRouter)
 router.use(activityRouter)
 router.use(reportsRouter)
+router.use(circularsRouter)
 
 export const indexRouter = router;

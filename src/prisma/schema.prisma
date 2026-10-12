@@ -776,3 +776,67 @@ model otpstore {
   expiry    DateTime
   createdat DateTime @default(now())
 }
+
+
+// Circulars are additive and retain immutable recipient snapshots once queued.
+model Circular {
+  id                 String   @id @default(uuid()) @db.Uuid
+  sender_id          String
+  sender_role        String
+  province_codes     String[]
+  subject            String   @default("") @db.VarChar(200)
+  message            String   @default("")
+  selection          Json
+  selection_summary  Json
+  status             String   @default("Draft")
+  version            Int      @default(1)
+  submission_key     String?  @unique
+  attachment_id      String?  @unique @db.Uuid
+  attachment         CircularAttachment? @relation(fields: [attachment_id], references: [id], onDelete: Restrict)
+  recipients         CircularRecipient[]
+  recipient_count    Int      @default(0)
+  sent_count         Int      @default(0)
+  failed_count       Int      @default(0)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @updatedAt @db.Timestamptz(6)
+  queued_at          DateTime? @db.Timestamptz(6)
+  finished_at        DateTime? @db.Timestamptz(6)
+  @@index([status, created_at])
+  @@index([sender_id, status])
+  @@index([province_codes], type: Gin)
+}
+
+model CircularAttachment {
+  id             String   @id @default(uuid()) @db.Uuid
+  owner_id       String
+  province_codes String[]
+  blob_key       String   @unique
+  filename       String
+  mime_type      String
+  size           Int
+  sha256         String
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  circular       Circular?
+}
+
+model CircularRecipient {
+  id                  String @id @default(uuid()) @db.Uuid
+  circular_id         String @db.Uuid
+  circular            Circular @relation(fields: [circular_id], references: [id], onDelete: Cascade)
+  email               String
+  snapshot            Json
+  status              String @default("Queued")
+  attempts            Int @default(0)
+  retryable           Boolean @default(true)
+  next_attempt_at     DateTime @default(now()) @db.Timestamptz(6)
+  lease_token         String? @db.Uuid
+  lease_until         DateTime? @db.Timestamptz(6)
+  smtp_started_at     DateTime? @db.Timestamptz(6)
+  provider_message_id String?
+  sent_at             DateTime? @db.Timestamptz(6)
+  delivered_at        DateTime? @db.Timestamptz(6)
+  last_error          String?
+  @@unique([circular_id, email])
+  @@index([status, next_attempt_at])
+  @@index([status, lease_until])
+}

@@ -1,0 +1,33 @@
+import express from 'express';
+import multer from 'multer';
+import {PrismaClient} from '@prisma/client';
+import {resolveDataScope,sendScopeError} from '../utils/dataScope.js';
+import {CircularService,MAX_ATTACHMENT_BYTES} from '../services/circularService.js';
+import {uploadCircularBlob,downloadCircularBlob,deleteCircularBlob} from '../middlewares/azureBlob.js';
+import {circularMailConfigured} from '../middlewares/emailService.js';
+const db=new PrismaClient();
+const service=new CircularService({db,storage:{upload:uploadCircularBlob,download:downloadCircularBlob,remove:deleteCircularBlob},mailReady:circularMailConfigured,workerEnabled:()=>process.env.CIRCULAR_WORKER_ENABLED==='true'});
+export const circularsRouter=express.Router();
+const scope=async(req,res,next)=>{try{req.circularScope=await resolveDataScope(req,db);next();}catch(error){sendScopeError(res,error,'Unable to authorize circulars.');}};
+circularsRouter.use('/circulars',scope);
+const handler=fn=>async(req,res)=>{try{await fn(req,res);}catch(error){
+  if(error.status || ['TokenExpiredError','JsonWebTokenError'].includes(error.name))return sendScopeError(res,error,'Unable to process circular.');
+  console.error('Circular API error:',error.code || error.name);
+  res.status(error.code==='P2021'?503:500).json({message:error.code==='P2021'?'Circular Management requires its database migration.':'Unable to process circular. Please retry or contact your administrator.'});
+}};
+const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:MAX_ATTACHMENT_BYTES,files:1,fields:0}}).single('file');
+circularsRouter.get('/circulars/metadata',handler(async(req,res)=>res.json(await service.metadata(req.circularScope))));
+circularsRouter.post('/circulars/recipients',handler(async(req,res)=>res.json(await service.recipients(req.circularScope,req.body))));
+circularsRouter.post('/circulars/attachments',(req,res,next)=>upload(req,res,error=>error?res.status(400).json({message:error.code==='LIMIT_FILE_SIZE'?'Attachments must be 10 MB or smaller.':'Upload one circular attachment.'}):next()),handler(async(req,res)=>res.status(201).json(await service.upload(req.circularScope,req.file))));
+circularsRouter.get('/circulars/attachments/:id',handler(async(req,res)=>{
+  const {metadata,buffer}=await service.attachment(req.circularScope,req.params.id);
+  res.set({'Content-Type':metadata.mime_type,'Content-Disposition':`attachment; filename="circular${metadata.filename.slice(metadata.filename.lastIndexOf('.'))}"; filename*=UTF-8''${encodeURIComponent(metadata.filename)}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}).send(buffer);
+}));
+circularsRouter.delete('/circulars/attachments/:id',handler(async(req,res)=>res.json(await service.removeAttachment(req.circularScope,req.params.id))));
+circularsRouter.get('/circulars',handler(async(req,res)=>res.json(await service.list(req.circularScope,req.query))));
+circularsRouter.post('/circulars',handler(async(req,res)=>res.status(201).json(await service.save(req.circularScope,req.body))));
+circularsRouter.put('/circulars/:id',handler(async(req,res)=>res.json(await service.save(req.circularScope,req.body,req.params.id))));
+circularsRouter.get('/circulars/:id',handler(async(req,res)=>res.json(await service.detail(req.circularScope,req.params.id))));
+circularsRouter.post('/circulars/:id/review',handler(async(req,res)=>res.json(await service.review(req.circularScope,req.params.id))));
+circularsRouter.post('/circulars/:id/send',handler(async(req,res)=>res.json(await service.queue(req.circularScope,req.params.id,req.body))));
+circularsRouter.post('/circulars/:id/retry',handler(async(req,res)=>res.json(await service.retry(req.circularScope,req.params.id))));
