@@ -1,4 +1,0 @@
-2025-01-10 13:38:55 error: Error during login: Cannot read properties of null (reading 'province_name')
-2025-01-10 13:38:55 error: Express Error: Cannot read properties of null (reading 'province_name')
-2025-01-10 18:07:02 error: Error during login: Incorrect user ID
-2025-01-10 18:07:02 error: Express Error: Incorrect user ID

@@ -185,7 +185,7 @@ for (const selection of [null, '', undefined]) test(`Curia accepts optional PCIC
 });
 
 
-test('both office drilldowns search globally and use linked contacts and every current designation', async () => {
+test('both office drilldowns search globally and Curia views retain linked contacts and the record designation', async () => {
  const {db,tables}=fixtures();
  Object.assign(tables.confreres_dtl[1], {personal1_isd:'+91',personal1_contact_no:'9876543210'});
  tables.quickcode_mst.push({quick_code_type:'destyp',quick_code:'DES2',quickcode_name:'Rector'});
@@ -198,13 +198,87 @@ test('both office drilldowns search globally and use linked contacts and every c
  for(const type of ['PCIC','GCIC']) {
   const res=response(); await api.getDashboardDetails(request({type,search:'9876543210'}),res);
   assert.equal(res.statusCode,200); assert.equal(res.body.scopeLabel,'ALL'); assert.equal(res.body.filteredTotal,1);
-  assert.equal(res.body.records[0].mobile_number,'+91 9876543210');
-  assert.equal(res.body.records[0].current_designations,'DES, Rector');
+  assert.equal(res.body.records[0].mobile_number,'+91 1234567890');
+  assert.equal(res.body.records[0].current_designations,'DES');
  }
  const curia=await loadController('../../src/controllers/Msfs/curia.js',db);
  const req=request({},'GET');req.curiaRecord=tables.curia_advisors_dtl[0]; const res=response();await curia.getCuriaAdvisor(req,res);
- assert.equal(res.body.mobile_number,'+91 9876543210'); assert.equal(res.body.current_designations,'DES, Rector');
+ assert.equal(res.body.mobile_number,'+91 9876543210'); assert.equal(res.body.current_designations,'DES');
  delete tables.confreres_dtl[1].personal1_contact_no;tables.appoint_transfer_dtl.length=0;
  const missing=response();await curia.getCuriaAdvisor(req,missing);
- assert.equal(missing.body.mobile_number,'Not available');assert.equal(missing.body.current_designations,'Not available');
+ assert.equal(missing.body.mobile_number,'Not available');assert.equal(missing.body.current_designations,'DES');
+});
+
+test('office dashboard and exports display and search Curia contacts without profile contacts or appointments', async () => {
+ const {db,tables}=fixtures();
+ tables.quickcode_mst.find(row => row.quick_code === 'DES').quickcode_name = 'Provincial Superior';
+ tables.curia_advisors_dtl.push({...curiaBody,curia_code:'CUR001',personal1_contact_no:8877361223n});
+ const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
+ for(const type of ['PCIC','GCIC']) {
+  for(const body of [{type}, {type,search:'8877361223'}, {type,search:'person@example.test',exportAll:true}]) {
+   const res=response(); await api.getDashboardDetails(request(body),res);
+   assert.equal(res.statusCode,200);
+   assert.equal(res.body.filteredTotal,1);
+   assert.equal(res.body.records[0].current_designations,'Provincial Superior');
+   assert.equal(res.body.records[0].mobile_number,'+91 8877361223');
+   assert.doesNotThrow(() => JSON.stringify(res.body));
+  }
+ }
+});
+
+
+test('Curia dashboard counts table rows in scope, excludes inactive people, and supports zero and errors', async () => {
+ const {db,tables}=fixtures();
+ tables.province_mst[0].concretion_code='C1';
+ tables.province_mst[1].concretion_code='C2';
+ tables.concretion_defination_mst=[{concretion_code:'C1',concretion_name:'First congregation'}];
+ db.concretion_defination_mst=database({concretion_defination_mst:tables.concretion_defination_mst}).concretion_defination_mst;
+ tables.curia_advisors_dtl.push(
+  {...curiaBody,curia_code:'A',pcic_off_code:null,gcic_off_code:''},
+  {...curiaBody,curia_code:'B'},
+  {...curiaBody,curia_code:'C',province_code:'P2',confrer_code:'DIB2024001'},
+  {...curiaBody,curia_code:'D',province_code:'P2',confrer_code:'DEAD2024001'});
+ const {getDashboardDetails}=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
+ const run=async (role,body={})=>{
+  const res=response();
+  await getDashboardDetails({headers:{authorization:`Bearer ${jwt.sign(role,JWT_SECRET)}`},body:{type:'CURIA',...body}},res);
+  return res;
+ };
+ const scoped=await run(user,{pageSize:1});
+ assert.equal(scoped.statusCode,200);assert.equal(scoped.body.total,2);assert.equal(scoped.body.records.length,1);
+ assert.equal(scoped.body.scopeLabel,'Province One');
+ const exported=await run(user,{exportAll:true});assert.equal(exported.body.records.length,2);
+ const all=await run({role_name:'super admin'});assert.equal(all.body.total,3);
+ const selected=await run({role_name:'super admin'},{province_code:'P2'});assert.equal(selected.body.total,1);
+ const congregation=await run({role_name:'congregation admin',concretion_code:'C1'});assert.equal(congregation.body.total,2);
+ assert.equal((await run({role_name:'congregation admin',concretion_code:'C1'},{province_code:'P2'})).statusCode,403);
+ assert.equal((await run({role_name:'viewer'})).statusCode,403);
+ assert.equal((await run(user,{search:'no matching person'})).body.filteredTotal,0);
+ tables.curia_advisors_dtl.length=0;
+ assert.equal((await run(user)).body.total,0);
+ const noToken=response();await getDashboardDetails({headers:{},body:{type:'CURIA'}},noToken);assert.equal(noToken.statusCode,401);
+ db.curia_advisors_dtl.count=async()=>{throw new Error('Database unavailable');};
+ assert.equal((await run(user)).statusCode,500);
+});
+
+
+test('Curia view designation matches the office popup and falls back only when its record has no designation', async()=>{
+ const {db,tables}=fixtures();
+ tables.quickcode_mst.push({quick_code_type:'destyp',quick_code:'LOCAL',quickcode_name:'Local Bursar'},{quick_code_type:'destyp',quick_code:'RECTOR',quickcode_name:'Rector'});
+ const row={...curiaBody,curia_code:'DESIGNATION',designation_code:'LOCAL'};
+ tables.curia_advisors_dtl.push(row);
+ const view=await loadController('../../src/controllers/Msfs/curia.js',db);
+ const dashboard=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
+ const getView=async()=>{const res=response();await view.getCuriaAdvisor({...request(),params:{curia_code:row.curia_code},curiaRecord:row},res);assert.equal(res.statusCode,200);return res.body;};
+ // A missing current appointment must not hide a valid Curia designation.
+ assert.equal((await getView()).current_designations,'Local Bursar');
+ for(const type of ['PCIC','GCIC']) {
+  const popup=response();await dashboard.getDashboardDetails(request({type}),popup);
+  assert.equal(popup.body.records[0].current_designations,(await getView()).current_designations);
+ }
+ // A different appointment designation must not replace this Curia record's designation.
+ tables.appoint_transfer_dtl.push({confrer_code:row.confrer_code,designation_code:'RECTOR',designation_end_date:null,is_active:true});
+ assert.equal((await getView()).current_designations,'Local Bursar');
+ row.designation_code=null;assert.equal((await getView()).current_designations,'Rector');
+ tables.appoint_transfer_dtl.length=0;assert.equal((await getView()).current_designations,'Not available');
 });

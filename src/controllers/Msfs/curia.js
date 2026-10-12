@@ -847,10 +847,14 @@ export async function getCuriaAdvisor(req, res) {
 
 
 
+    // Use the Curia record designation, matching the dashboard office popup.
+    const personDetails = await officePersonDetails(prisma, confrere);
+
     // Combine the curia advisor details with additional data
     const jsonResponse = {
       ...jsonifyBigInt(curiaAdvisor),
-      ...await officePersonDetails(prisma, confrere),
+      ...personDetails,
+      current_designations: designationQuickcode?.quickcode_name || personDetails.current_designations,
       province_name: province?.province_name || curiaAdvisor.province_code,
       division_type_name: divisionTypeQuickcode?.quickcode_name || curiaAdvisor.division_type_code,
       designation_name: designationQuickcode?.quickcode_name || curiaAdvisor.designation_code,

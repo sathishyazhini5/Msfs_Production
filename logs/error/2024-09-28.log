@@ -1,7 +1,0 @@
-2024-09-28 10:57:00 error: uncaughtException: getFedtypeNames is not defined
-ReferenceError: getFedtypeNames is not defined
-    at file:///C:/Users/Asus-2020/Desktop/E_Status%20Demo/Backend/src/routes/quickcoderoutes/fedtypeRouter.js:7:26
-    at ModuleJob.run (node:internal/modules/esm/module_job:218:25)
-    at async ModuleLoader.import (node:internal/modules/esm/loader:329:24)
-    at async loadESM (node:internal/process/esm_loader:28:7)
-    at async handleMainPromise (node:internal/modules/run_main:113:12)

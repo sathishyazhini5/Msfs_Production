@@ -5,7 +5,7 @@ import { JWT_SECRET } from '../src/config/index.js';
 import { resolveDataScope } from '../src/utils/dataScope.js';
 import { requireEstatusAccess, setEstatusRecordWhere, estatusRecordWhere } from '../src/utils/estatusAccess.js';
 import { loadController, response, database } from './helpers/controllerHarness.js';
-import { parseDirectoryQuery, directorySql, fetchDirectory, loadDirectoryOptions } from '../src/services/estatusService.js';
+import { parseDirectoryQuery, directorySql, fetchDirectory, loadDirectoryOptions, appliedDirectoryFilters, filterFields } from '../src/services/estatusService.js';
 
 test('directory query rejects unsupported filters, arrays, invalid pagination and excessive search', () => {
   assert.deepEqual(parseDirectoryQuery('confrere', {}), { page: 1, pageSize: 20 });
@@ -187,4 +187,23 @@ test('Scholastic global detail retains province ownership for duplicate codes an
  const api=await loadController('../../src/controllers/Msfs/scholastics.js',prisma);
  const req={method:'GET',params:{scholastic_code:'S1'},query:{},headers:{}};setEstatusRecordWhere(req,identity);
  const res=response();await api.getScholasticDetails(req,res);assert.equal(res.statusCode,200);assert.equal(res.body.province_code,'P2');assert.equal(res.body.personal1_contact_no,'123');
+});
+
+
+test('applied filter summaries resolve every directory filter, composite IDs and multiple names', () => {
+ for (const [kind, fields] of Object.entries(filterFields)) {
+  const filters=Object.fromEntries(fields.map(field=>[field,field==='division'?JSON.stringify(['P1','T','D']):`${field}-id`]));
+  const options=Object.fromEntries(fields.map(field=>[field,[{value:filters[field],label:`Readable ${field}`}]]));
+  assert.deepEqual(appliedDirectoryFilters(kind,filters,options),fields.map(field=>({field,values:[`Readable ${field}`]})));
+  assert.deepEqual(appliedDirectoryFilters(kind,{},options),[]);
+ }
+ assert.deepEqual(appliedDirectoryFilters('confrere',{apostolate_code:['A1','A2'],province_code:''},{apostolate_code:[{value:'A1',label:'Education'},{value:'A2',label:'Mission'}]}),[{field:'apostolate_code',values:['Education','Mission']}]);
+ assert.deepEqual(appliedDirectoryFilters('confrere',{apostolate_code:'unknown'},{}),[]);
+});
+
+test('directory responses include readable summaries for the exact validated query', async () => {
+ const prisma={...db,$queryRaw:async sql=>sql.text.includes('count(*)')?[{total:0}]:[],$transaction:async jobs=>Promise.all(jobs)};
+ const result=await fetchDirectory(prisma,'confrere',{page:1,pageSize:20,apostolate_code:'A1',designation_code:'DES'},['P1']);
+ assert.deepEqual(result.appliedFilters,[{field:'designation_code',values:['Superior']},{field:'apostolate_code',values:['Education']}]);
+ assert.equal(result.total,0);
 });

@@ -1,8 +1,0 @@
-2024-10-07 16:21:38 error: uncaughtException: saveScholasticByExcel is not defined
-ReferenceError: saveScholasticByExcel is not defined
-    at file:///C:/Users/Asus-2020/Desktop/E_Status%20Demo/Backend/src/routes/Msfs/scholasticsRouter.js:11:68
-    at ModuleJob.run (node:internal/modules/esm/module_job:218:25)
-    at async ModuleLoader.import (node:internal/modules/esm/loader:329:24)
-    at async loadESM (node:internal/process/esm_loader:28:7)
-    at async handleMainPromise (node:internal/modules/run_main:113:12)
-2024-10-07 23:11:33 error: [PUT] /api/updateConfrere/EA2024024 >> StatusCode:: 500, Message:: Unexpected field

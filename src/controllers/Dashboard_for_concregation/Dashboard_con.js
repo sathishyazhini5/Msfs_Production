@@ -1,3 +1,4 @@
+import { scholasticTypeNames, scholasticDashboardType } from "../../utils/scholasticTypes.js";
 import { countScholasticVows } from '../../utils/scholasticVows.js';
 import { PrismaClient } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
@@ -591,20 +592,20 @@ export const getDivisionCountsforTokenConcretion = async (req, res) => {
       const scholasticTypeQuickcodes = await prisma.quickcode_mst.findMany({
           where: {
               quick_code_type: "schtyp",
-              quickcode_name: { in: ["novoices", "minor seminarians"], mode: "insensitive" },
+              quickcode_name: { in: [...scholasticTypeNames.NOVICE, ...scholasticTypeNames.MINOR_SEMINARIAN], mode: "insensitive" },
           },
           select: { quick_code: true, quickcode_name: true },
       });
 
       const scholasticTypeMap = Object.fromEntries(
-          scholasticTypeQuickcodes.map((q) => [q.quick_code.toLowerCase(), q.quickcode_name.toLowerCase()])
+          scholasticTypeQuickcodes.map((q) => [q.quick_code.toLowerCase(), scholasticDashboardType(q.quickcode_name)])
       );
 
       const scholasticCounts = await prisma.scholastics_admisn_promon_dtl.groupBy({
           by: ["scholastic_type_code"],
           where: {
               province_code: { in: provinceCodes },
-              scholastic_type_code: { in: Object.keys(scholasticTypeMap) },
+              scholastic_type_code: { in: Object.keys(scholasticTypeMap), mode: "insensitive" },
               end_date: null,
           },
           _count: { scholastic_type_code: true },

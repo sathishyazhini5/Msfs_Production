@@ -1,3 +1,4 @@
+import { scholasticTypeNames } from "../../utils/scholasticTypes.js";
 import { officePersonDetails } from '../../utils/officePersonDetails.js';
 import { officeRecordWhere } from '../../utils/officeTypes.js';
 import { scholasticVowsWhere } from '../../utils/scholasticVows.js';
@@ -9,7 +10,7 @@ const prisma = new PrismaClient();
 const CARD_TYPES = new Set([
   "REGION", "DELEGATION", "MISSION", "PRIEST", "RELIGIOUS_BROTHER",
   "SCHOLASTIC_PERPETUAL", "SCHOLASTIC_TEMPORARY", "NOVICE",
-  "MINOR_SEMINARIAN", "CENTER", "PCIC", "GCIC",
+  "MINOR_SEMINARIAN", "CENTER", "CURIA", "PCIC", "GCIC",
 ]);
 
 const quickCodesByName = async (type, names) => {
@@ -133,16 +134,37 @@ export const getDashboardDetails = async (req, res) => {
     let records;
     let columns;
 
-    if (["PCIC", "GCIC"].includes(type)) {
-      const baseWhere = await officeRecordWhere(prisma, type);
-      const people = await prisma.confreres_dtl.findMany({ where: { is_active: true }, select: { confrer_code: true, first_name: true, middle_name: true, last_name: true, personal1_isd: true, personal1_contact_no: true, personal_mailid1: true } });
+    if (["CURIA", "PCIC", "GCIC"].includes(type)) {
+      const people = await prisma.confreres_dtl.findMany({ where: { is_active: true, ...(type === "CURIA" ? provinceWhere(provinceCodes) : {}) }, select: { province_code: true, confrer_code: true, first_name: true, middle_name: true, last_name: true, personal1_isd: true, personal1_contact_no: true, personal_mailid1: true } });
+      const baseWhere = type === "CURIA"
+        ? { ...provinceWhere(provinceCodes), OR: people.map(person => ({ confrer_code: person.confrer_code, province_code: person.province_code })) }
+        : await officeRecordWhere(prisma, type);
       const names = Object.fromEntries(people.map(row => [row.confrer_code, [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ')]));
-      where = { AND: [baseWhere, ...(search ? [{ confrer_code: { in: people.filter(row => [names[row.confrer_code], row.personal1_contact_no, row.personal_mailid1].some(value => String(value || '').toLowerCase().includes(search.toLowerCase()))).map(row => row.confrer_code) } }] : [])] };
+      where = { AND: [baseWhere, ...(search ? [{ OR: [
+        { confrer_code: { in: people.filter(row => [names[row.confrer_code], row.personal1_contact_no, row.personal_mailid1].some(value => String(value || '').toLowerCase().includes(search.toLowerCase()))).map(row => row.confrer_code) } },
+        { personal_mailid1: contains(search) },
+        ...mobileEquals(search, 'personal1_contact_no'),
+      ] }] : [])] };
       [total, filteredTotal, records] = await Promise.all([
         prisma.curia_advisors_dtl.count({ where: baseWhere }), prisma.curia_advisors_dtl.count({ where }),
-        prisma.curia_advisors_dtl.findMany({ where, select: { curia_code: true, confrer_code: true, province_code: true, division_type_code: true, division_code: true, pcic_off_code: true, gcic_off_code: true }, orderBy: [{ province_code: 'asc' }, { curia_code: 'asc' }, { confrer_code: 'asc' }, { division_type_code: 'asc' }, { division_code: 'asc' }], skip, take }),
+        prisma.curia_advisors_dtl.findMany({ where, select: { curia_code: true, confrer_code: true, province_code: true, division_type_code: true, division_code: true, pcic_off_code: true, gcic_off_code: true, designation_code: true, personal1_isd: true, personal1_contact_no: true }, orderBy: [{ province_code: 'asc' }, { curia_code: 'asc' }, { confrer_code: 'asc' }, { division_type_code: 'asc' }, { division_code: 'asc' }], skip, take }),
       ]);
-      records = await Promise.all((await decorateProvinces(records)).map(async row => ({ ...row, name: names[row.confrer_code], ...await officePersonDetails(prisma, people.find(p => p.confrer_code === row.confrer_code)) }))); 
+      const designationCodes = [...new Set(records.map(row => row.designation_code).filter(Boolean))];
+      const designations = designationCodes.length ? await prisma.quickcode_mst.findMany({
+        where: { quick_code_type: 'destyp', quick_code: { in: designationCodes } },
+        select: { quick_code: true, quickcode_name: true },
+      }) : [];
+      records = await Promise.all((await decorateProvinces(records)).map(async row => {
+        const person = people.find(p => p.confrer_code === row.confrer_code && (type !== "CURIA" || p.province_code === row.province_code));
+        const fallback = await officePersonDetails(prisma, person);
+        return {
+          ...row,
+          name: type === "CURIA" ? [person?.first_name, person?.middle_name, person?.last_name].filter(Boolean).join(" ") : names[row.confrer_code],
+          current_designations: designations.find(entry => entry.quick_code === row.designation_code)?.quickcode_name || fallback.current_designations,
+          mobile_number: row.personal1_contact_no == null ? fallback.mobile_number : [row.personal1_isd, String(row.personal1_contact_no)].filter(Boolean).join(' '),
+          personal1_contact_no: undefined,
+        };
+      }));
       columns = [{ title: 'Name', dataIndex: 'name' }, { title: 'Province', dataIndex: 'province_name' }, { title: 'Designation', dataIndex: 'current_designations' }, { title: 'Mobile Number', dataIndex: 'mobile_number' }];
     } else if (["REGION", "DELEGATION", "MISSION"].includes(type)) {
       const codes = await quickCodesByName("divtyp", [type]);
@@ -207,8 +229,7 @@ export const getDashboardDetails = async (req, res) => {
     } else if (["NOVICE", "MINOR_SEMINARIAN"].includes(type)) {
       const codeField = "scholastic_type_code";
       const quickType = "schtyp";
-      const quickName = ({ NOVICE: "novoices", MINOR_SEMINARIAN: "minor seminarians" })[type];
-      const codes = await quickCodesByName(quickType, [quickName]);
+      const codes = await quickCodesByName(quickType, scholasticTypeNames[type]);
       const baseWhere = { ...provinceWhere(provinceCodes), [codeField]: { in: codes }, end_date: null };
       const matchingScholastics = search ? await prisma.scholastics_dtl.findMany({
         where: { ...provinceWhere(provinceCodes), OR: [{ first_name: contains(search) }, { middle_name: contains(search) }, { last_name: contains(search) }, { personal_mailid1: contains(search) }, ...mobileEquals(search, "personal1_contact_no")] },

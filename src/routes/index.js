@@ -54,6 +54,7 @@ import { Rolenamerouter } from './quickcoderoutes/rolename.js';
 import { globalSearchRouter } from './globalSearch.js';
 import { notificationRouter } from './notifications.js';
 import { activityRouter } from './activities.js';
+import { reportsRouter } from './reports.js';
 
 
 
@@ -123,5 +124,6 @@ router.use(estatusRouter)
 router.use(globalSearchRouter)
 router.use(notificationRouter)
 router.use(activityRouter)
+router.use(reportsRouter)
 
 export const indexRouter = router;

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 
 export const filterFields = {
-  confrere: ['province_code', 'division', 'member_type_code', 'designation_code', 'nationality_code'],
+  confrere: ['province_code', 'division', 'member_type_code', 'designation_code', 'nationality_code', 'apostolate_code'],
   scholastic: ['province_code', 'division', 'member_type_code', 'nationality_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'],
   centre: ['province_code', 'division', 'apostolate_code', 'centre_type_code', 'diocese_code', 'community_house_code', 'state', 'country_code'],
   obituary: ['province_code'],
@@ -44,7 +44,10 @@ export const loadDirectoryOptions = async (prisma, kind, codes, filters) => {
     division: uniqueOptions(divisions.map((d) => option(JSON.stringify([d.province_code, d.division_type_code, d.division_code]), filters.province_code ? d.division_name : `${d.division_name} (${provinces.find((p) => p.province_code === d.province_code)?.province_name || d.province_code})`))),
   };
   const quick = (type) => uniqueOptions(quickcodes.filter((q) => q.quick_code_type === type).map((q) => option(q.quick_code, q.quickcode_name)));
-  if (kind === 'confrere') return { ...options, member_type_code: quick('memtyp'), designation_code: quick('destyp'), nationality_code: quick('natlty') };
+  if (kind === 'confrere') {
+    const apostolates = await prisma.apostolates_mst.findMany({ where: scoped, select: { apostolate_code: true, apostolate_name: true } });
+    return { ...options, member_type_code: quick('memtyp'), designation_code: quick('destyp'), nationality_code: quick('natlty'), apostolate_code: uniqueOptions(apostolates.map(a => option(a.apostolate_code, a.apostolate_name))) };
+  }
   if (kind === 'scholastic') return { ...options, member_type_code: quick('memtyp'), nationality_code: quick('natlty'), scholastic_type_code: quick('schtyp'), formation_type_code: quick('fortyp'), year_formation_code: quick('yrform') };
   let division = null;
   if (filters.division) {
@@ -79,7 +82,7 @@ export const directorySql = (kind, filters, codes) => {
     else if (filters.mode !== 'all') clauses.push(Prisma.sql`r.death_date::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`);
   }
   for (const field of filterFields[kind].filter((f) => !['province_code', 'division', 'state', 'designation_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'].includes(f))) {
-    if (filters[field]) clauses.push(Prisma.sql`${Prisma.raw(`r.${field}`)} = ${filters[field]}`);
+    if (filters[field] && !(kind === 'confrere' && field === 'apostolate_code')) clauses.push(Prisma.sql`${Prisma.raw(`r.${field}`)} = ${filters[field]}`);
   }
   if (filters.state) {
     const [country, state] = JSON.parse(filters.state);
@@ -99,6 +102,22 @@ export const directorySql = (kind, filters, codes) => {
   }
   if (filters.designation_code) appointment.push(Prisma.sql`a.designation_code = ${filters.designation_code}`);
   if (kind !== 'scholastic' && appointment.length) clauses.push(Prisma.sql`EXISTS (SELECT 1 FROM appoint_transfer_dtl a WHERE a.confrer_code = r.confrer_code AND a.province_code = r.province_code AND a.is_active = TRUE AND ${scopeSql('a', codes)} AND ${Prisma.join(appointment, ' AND ')})`);
+  if (kind === 'confrere' && filters.apostolate_code) {
+    // Appointments and transfers share a table; older records are archived in history.
+    // EXISTS avoids multiplying people/counts when several assignments match.
+    const matchesApostolate = table => Prisma.sql`EXISTS (
+      SELECT 1 FROM ${Prisma.raw(table)} ap
+      JOIN centre_dtl ct ON ct.centre_code = ap.centre_code
+        AND ct.province_code = ap.province_code
+        AND ct.division_type_code = ap.division_type_code
+        AND ct.division_code = ap.division_code
+      JOIN apostolates_mst am ON am.apostolate_code = ct.apostolate_code
+        AND am.province_code = ct.province_code AND am.centre_type_code = ct.centre_type_code
+      WHERE ap.confrer_code = r.confrer_code AND ${scopeSql('ap', codes)}
+        AND am.apostolate_code = ${filters.apostolate_code}
+    )`;
+    clauses.push(Prisma.sql`(${matchesApostolate('appoint_transfer_dtl')} OR ${matchesApostolate('appoint_transfer_his_dtl')})`);
+  }
   const name = kind === 'centre' ? Prisma.sql`r.centre_name` : ['confrere', 'scholastic'].includes(kind)
     ? Prisma.sql`btrim(concat_ws(' ', r.first_name, r.middle_name, r.last_name))`
     : Prisma.sql`btrim(regexp_replace(coalesce(nullif(btrim(concat_ws(' ', coalesce(c.first_name, s.first_name), coalesce(c.middle_name, s.middle_name), coalesce(c.last_name, s.last_name))), ''), nullif(btrim(r.disease_name), ''), 'Name unavailable'), '[[:space:]]+', ' ', 'g'))`;
@@ -119,6 +138,14 @@ export const directorySql = (kind, filters, codes) => {
   };
 };
 
+// Resolve applied values against the same scoped options used to validate the query.
+// Composite option values stay intact; arrays represent multiple selected options.
+export const appliedDirectoryFilters = (kind, filters, options) => filterFields[kind].flatMap(field => {
+  const selected = Array.isArray(filters[field]) ? filters[field] : [filters[field]];
+  const names = selected.filter(Boolean).map(value => options[field]?.find(item => item.value === value)?.label).filter(Boolean);
+  return names.length ? [{ field, values: names }] : [];
+});
+
 export const fetchDirectory = async (prisma, kind, filters, codes) => {
   const options = await loadDirectoryOptions(prisma, kind, codes, filters);
   for (const field of filterFields[kind]) {
@@ -130,5 +157,5 @@ export const fetchDirectory = async (prisma, kind, filters, codes) => {
     prisma.quickcode_mst.findMany({ where: { quick_code_type: 'memtyp' }, select: { quick_code: true, quickcode_name: true } }),
   ]);
   const names = new Map(members.map((m) => [m.quick_code, m.quickcode_name]));
-  return { data: rows.map((r) => ({ ...r, member_type_name: names.get(r.member_type_code) || null })), total: counts[0].total, page: filters.page, pageSize: filters.pageSize, totalPages: Math.ceil(counts[0].total / filters.pageSize) };
+  return { appliedFilters: appliedDirectoryFilters(kind, filters, options), data: rows.map((r) => ({ ...r, member_type_name: names.get(r.member_type_code) || null })), total: counts[0].total, page: filters.page, pageSize: filters.pageSize, totalPages: Math.ceil(counts[0].total / filters.pageSize) };
 };

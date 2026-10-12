@@ -1,6 +1,0 @@
-2024-11-12 11:40:05 info: [0mGET /api/Getdetailsofprovinces [36m304[0m 2848.729 ms - -[0m
-2024-11-12 11:40:05 info: [0mGET /api/Getdetailsofprovinces [36m304[0m 337.517 ms - -[0m
-2024-11-12 11:44:25 info: [0mGET /api/Getdetailsofprovinces [36m304[0m 503.440 ms - -[0m
-2024-11-12 11:44:25 info: [0mGET /api/Getdetailsofprovinces [36m304[0m 250.415 ms - -[0m
-2024-11-12 11:44:27 info: [0mGET /api/getConcretions [36m304[0m 2443.484 ms - -[0m
-2024-11-12 11:44:27 info: [0mGET /api/getConcretions [36m304[0m 244.545 ms - -[0m
