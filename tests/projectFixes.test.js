@@ -16,7 +16,7 @@ const request = (body = {}, method = 'POST') => ({ method, headers: { authorizat
 function fixtures() {
   const tables = {
     meta_data_mst: [{ screen_code: 'qckcode', meta_code: 'pcicof', meta_code_name: 'PCIC TYPE' }, { screen_code: 'qckcode', meta_code: 'GCIC_TYPE', meta_code_name: 'GCIC TYPE' }],
-    quickcode_mst: [ ['pcicof', 'PCIC001'], ['GCIC_TYPE', 'GCIC001'], ['divtyp', 'DIV'], ['destyp', 'DES'], ['mandat', 'MAN'] ].map(([quick_code_type,quick_code]) => ({quick_code_type,quick_code,quickcode_name:quick_code})),
+    quickcode_mst: [ ['pcicof', 'PCIC001'], ['GCIC_TYPE', 'GCIC001'], ['divtyp', 'DIV'], ['destyp', 'DES'], ['mandat', 'MAN'] ].map(([quick_code_type,quick_code]) => ({quick_code_type,quick_code,quickcode_name:quick_code === 'DES' ? 'Provincial Councillor' : quick_code})),
     province_mst: [{ province_code: 'P1', province_name: 'Province One', short_name: 'VIZAG' }, { province_code: 'P2', province_name: 'Province Two', short_name: 'DIB' }],
     confreres_dtl: [{ confrer_code: 'VIZAG2024009', province_code: 'P1', first_name: 'First', is_active: true }, { confrer_code: 'DIB2024001', province_code: 'P2', first_name: 'Second', is_active: true }, { confrer_code: 'DEAD2024001', province_code: 'P2', is_active: false }],
     division_setup_mst: [{ province_code: 'P1', division_type_code: 'DIV', division_code: 'D1', division_name: 'Division One' }],
@@ -199,14 +199,14 @@ test('both office drilldowns search globally and Curia views retain linked conta
   const res=response(); await api.getDashboardDetails(request({type,search:'9876543210'}),res);
   assert.equal(res.statusCode,200); assert.equal(res.body.scopeLabel,'ALL'); assert.equal(res.body.filteredTotal,1);
   assert.equal(res.body.records[0].mobile_number,'+91 1234567890');
-  assert.equal(res.body.records[0].current_designations,'DES');
+  assert.equal(res.body.records[0].current_designations,'Provincial Councillor');
  }
  const curia=await loadController('../../src/controllers/Msfs/curia.js',db);
  const req=request({},'GET');req.curiaRecord=tables.curia_advisors_dtl[0]; const res=response();await curia.getCuriaAdvisor(req,res);
- assert.equal(res.body.mobile_number,'+91 9876543210'); assert.equal(res.body.current_designations,'DES');
+ assert.equal(res.body.mobile_number,'+91 9876543210'); assert.equal(res.body.current_designations,'Provincial Councillor');
  delete tables.confreres_dtl[1].personal1_contact_no;tables.appoint_transfer_dtl.length=0;
  const missing=response();await curia.getCuriaAdvisor(req,missing);
- assert.equal(missing.body.mobile_number,'Not available');assert.equal(missing.body.current_designations,'DES');
+ assert.equal(missing.body.mobile_number,'Not available');assert.equal(missing.body.current_designations,'Provincial Councillor');
 });
 
 test('office dashboard and exports display and search Curia contacts without profile contacts or appointments', async () => {
@@ -214,7 +214,7 @@ test('office dashboard and exports display and search Curia contacts without pro
  tables.quickcode_mst.find(row => row.quick_code === 'DES').quickcode_name = 'Provincial Superior';
  tables.curia_advisors_dtl.push({...curiaBody,curia_code:'CUR001',personal1_contact_no:8877361223n});
  const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
- for(const type of ['PCIC','GCIC']) {
+ for(const type of ['GCIC']) {
   for(const body of [{type}, {type,search:'8877361223'}, {type,search:'person@example.test',exportAll:true}]) {
    const res=response(); await api.getDashboardDetails(request(body),res);
    assert.equal(res.statusCode,200);
@@ -272,7 +272,7 @@ test('Curia view designation matches the office popup and falls back only when i
  const getView=async()=>{const res=response();await view.getCuriaAdvisor({...request(),params:{curia_code:row.curia_code},curiaRecord:row},res);assert.equal(res.statusCode,200);return res.body;};
  // A missing current appointment must not hide a valid Curia designation.
  assert.equal((await getView()).current_designations,'Local Bursar');
- for(const type of ['PCIC','GCIC']) {
+ for(const type of ['GCIC']) {
   const popup=response();await dashboard.getDashboardDetails(request({type}),popup);
   assert.equal(popup.body.records[0].current_designations,(await getView()).current_designations);
  }
@@ -281,4 +281,24 @@ test('Curia view designation matches the office popup and falls back only when i
  assert.equal((await getView()).current_designations,'Local Bursar');
  row.designation_code=null;assert.equal((await getView()).current_designations,'Rector');
  tables.appoint_transfer_dtl.length=0;assert.equal((await getView()).current_designations,'Not available');
+});
+
+test('PCIC includes every selected office and filters province/designation across pages and exports', async () => {
+ const {db,tables}=fixtures();
+ tables.quickcode_mst.push({quick_code_type:'destyp',quick_code:'LOCAL',quickcode_name:'Local Bursar'});
+ tables.curia_advisors_dtl.push(
+  {...curiaBody,curia_code:'A',designation_code:'LOCAL'},
+  {...curiaBody,curia_code:'B',province_code:'P2',confrer_code:'DIB2024001'},
+  {...curiaBody,curia_code:'C',pcic_off_code:''});
+ const {getDashboardDetails}=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
+ const run=async options=>{const res=response();await getDashboardDetails(request({type:'PCIC',...options}),res);assert.equal(res.statusCode,200);return res.body;};
+ const card=await run({pageSize:1});assert.equal(card.total,2);assert.equal(card.records.length,1);
+ assert.equal(card.filterOptions.provinces.length,2);assert.equal(card.filterOptions.designations.length,2);
+ assert.deepEqual((await run({exportAll:true})).records.map(row=>row.curia_code),['A','B']);
+ for(const options of [{filterProvince:'P1'}, {filterDesignation:'LOCAL'}, {filterProvince:'P1',filterDesignation:'LOCAL',search:'person@example.test',exportAll:true}]) {
+  const result=await run(options);assert.equal(result.total,2);assert.equal(result.filteredTotal,1);assert.equal(result.records[0].curia_code,'A');
+  assert.equal(result.filterOptions.provinces.length,2);
+ }
+ const none=await run({filterProvince:'P2',filterDesignation:'LOCAL',exportAll:true});assert.equal(none.filteredTotal,0);assert.deepEqual(none.records,[]);
+ assert.equal((await run({filterProvince:'unknown'})).filteredTotal,0);
 });

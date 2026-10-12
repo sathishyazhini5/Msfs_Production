@@ -133,14 +133,29 @@ export const getDashboardDetails = async (req, res) => {
     let filteredTotal;
     let records;
     let columns;
+    let filterOptions;
 
     if (["CURIA", "PCIC", "GCIC"].includes(type)) {
       const people = await prisma.confreres_dtl.findMany({ where: { is_active: true, ...(type === "CURIA" ? provinceWhere(provinceCodes) : {}) }, select: { province_code: true, confrer_code: true, first_name: true, middle_name: true, last_name: true, personal1_isd: true, personal1_contact_no: true, personal_mailid1: true } });
       const baseWhere = type === "CURIA"
         ? { ...provinceWhere(provinceCodes), OR: people.map(person => ({ confrer_code: person.confrer_code, province_code: person.province_code })) }
         : await officeRecordWhere(prisma, type);
+      const officeRows = await prisma.curia_advisors_dtl.findMany({
+        where: baseWhere, select: { province_code: true, designation_code: true },
+      });
+      const [filterProvinces, filterDesignations] = await Promise.all([
+        prisma.province_mst.findMany({ where: { province_code: { in: [...new Set(officeRows.map(row => row.province_code).filter(Boolean))] } }, select: { province_code: true, province_name: true } }),
+        prisma.quickcode_mst.findMany({ where: { quick_code_type: 'destyp', quick_code: { in: [...new Set(officeRows.map(row => row.designation_code).filter(Boolean))] } }, select: { quick_code: true, quickcode_name: true } }),
+      ]);
+      filterOptions = {
+        provinces: filterProvinces.map(row => ({ value: row.province_code, label: row.province_name })).sort((a, b) => a.label.localeCompare(b.label)),
+        designations: filterDesignations.map(row => ({ value: row.quick_code, label: row.quickcode_name })).sort((a, b) => a.label.localeCompare(b.label)),
+      };
       const names = Object.fromEntries(people.map(row => [row.confrer_code, [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ')]));
-      where = { AND: [baseWhere, ...(search ? [{ OR: [
+      where = { AND: [baseWhere,
+        ...(req.body?.filterProvince ? [{ province_code: String(req.body.filterProvince) }] : []),
+        ...(req.body?.filterDesignation ? [{ designation_code: String(req.body.filterDesignation) }] : []),
+        ...(search ? [{ OR: [
         { confrer_code: { in: people.filter(row => [names[row.confrer_code], row.personal1_contact_no, row.personal_mailid1].some(value => String(value || '').toLowerCase().includes(search.toLowerCase()))).map(row => row.confrer_code) } },
         { personal_mailid1: contains(search) },
         ...mobileEquals(search, 'personal1_contact_no'),
@@ -290,7 +305,7 @@ export const getDashboardDetails = async (req, res) => {
     const searchPlaceholder = ["REGION", "DELEGATION", "MISSION"].includes(type)
       ? "Search by name"
       : "Search by name, mobile or email";
-    res.json({ type, scopeLabel, total, filteredTotal, page, pageSize, totalPages: Math.max(Math.ceil(filteredTotal / pageSize), 1), searchPlaceholder, columns, records });
+    res.json({ type, scopeLabel, total, filteredTotal, page, pageSize, totalPages: Math.max(Math.ceil(filteredTotal / pageSize), 1), searchPlaceholder, columns, records, filterOptions });
   } catch (error) {
     console.error("Dashboard detail error:", error);
     res.status(error.status || (error.name === "TokenExpiredError" ? 401 : 500)).json({ message: error.message || "Failed to load Dashboard details." });
