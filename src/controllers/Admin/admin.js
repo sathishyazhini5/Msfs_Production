@@ -1,3 +1,5 @@
+import {MemberAccessService,MEMBER_ROLE,normalizeEmail} from '../../services/memberAccessService.js';
+import {sendAccountEmail} from '../../middlewares/emailService.js';
 import { PrismaClient } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import bcrypt from 'bcrypt';
@@ -196,9 +198,11 @@ const sendOtpEmail = async (userEmail, otp) => {
 
 
 
+const memberPasswords=new MemberAccessService({db:prisma,send:sendAccountEmail});
+
 // Forgot Password (Send OTP)
 export const forgotPassword = async (req, res) => {
-  const { user_id } = req.body;
+  const user_id=normalizeEmail(req.body.user_id);
 
   if (!user_id) {
     return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Username is required' });
@@ -206,13 +210,17 @@ export const forgotPassword = async (req, res) => {
 
     try {
  const user = await prisma.users_mst.findFirst({
-  where: { user_id },
+  where: { user_id:{equals:user_id,mode:'insensitive'} },
 });
 
 if (!user) {
   return res.status(404).json({ message: 'User not found' });
 }
 
+    if(user.role_name===MEMBER_ROLE || user.role_code==='MEMBER') {
+      await memberPasswords.requestPassword(user.user_id);
+      return res.status(200).json({message:'OTP sent to your email'});
+    }
     const role = await prisma.quickcode_mst.findFirst({
   where: {
     quick_code: user.role_code,
@@ -255,6 +263,13 @@ export const resetPassword = async (req, res) => {
   const { otp, newPassword } = req.body;
 
   try {
+    if(req.body.user_id) {
+      const memberUser=await prisma.users_mst.findFirst({where:{user_id:{equals:normalizeEmail(req.body.user_id),mode:'insensitive'}}});
+      if(memberUser?.role_name===MEMBER_ROLE || memberUser?.role_code==='MEMBER') {
+        await memberPasswords.resetPassword(memberUser.user_id,otp,newPassword);
+        return res.status(200).json({message:'Password reset successful'});
+      }
+    }
     // Check if the OTP is valid
     const otpRecord = await prisma.otpstore.findFirst({
       where: { otp },

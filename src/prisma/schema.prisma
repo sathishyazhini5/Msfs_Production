@@ -136,6 +136,7 @@ model users_mst {
 
   // ✅ Relation to activity mappings
   user_role_com_activity_mst user_role_com_activity_mst[] @relation("UserActivitiesRelation")
+  member_access MemberAccess?
 
   @@id([user_type_code, prov_concre_code, user_id])
 }
@@ -195,6 +196,7 @@ model user_role_com_activity_mst {
     created_date    DateTime?               // Date when the record was created
     updated_by      String? @db.VarChar(100) // The user who last updated the record
     updated_date    DateTime?               // Date when the record was last updated
+    branding        CongregationBranding?
 
     @@id([concretion_code]) // Composite primary key
   }
@@ -786,6 +788,9 @@ model Circular {
   province_codes     String[]
   subject            String   @default("") @db.VarChar(200)
   message            String   @default("")
+  circular_type      String   @default("Circular") @db.VarChar(20)
+  signature          String   @default("")
+  content_snapshot   Json?
   selection          Json
   selection_summary  Json
   status             String   @default("Draft")
@@ -839,4 +844,52 @@ model CircularRecipient {
   @@unique([circular_id, email])
   @@index([status, next_attempt_at])
   @@index([status, lease_until])
+}
+
+model CongregationBranding {
+  concretion_code String @id @db.VarChar(10)
+  congregation    concretion_defination_mst @relation(fields: [concretion_code], references: [concretion_code], onDelete: Cascade, map: "CongregationBranding_congregation_fkey")
+  logo_key        String?
+  mime_type       String?
+  sha256          String?
+  updated_by      String
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+}
+
+model MemberAccess {
+  user_id String @id @db.VarChar(100)
+  user users_mst @relation(fields:[user_id], references:[user_id], onDelete: Cascade)
+  person_kind String @db.VarChar(20)
+  person_code String @db.VarChar(50)
+  province_code String @db.VarChar(10)
+  concretion_code String @db.VarChar(10)
+  enabled Boolean @default(true)
+  created_by String @db.VarChar(100)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([person_kind,person_code,province_code])
+}
+model MemberPasswordToken {
+  user_id String @id @db.VarChar(100)
+  token_hash String @db.VarChar(64)
+  expires_at DateTime @db.Timestamptz(6)
+  attempts Int @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+model AnnualWish {
+  person_identity String @db.VarChar(100)
+  id String @id @default(uuid()) @db.Uuid
+  concretion_code String @db.VarChar(10)
+  person_kind String @db.VarChar(20)
+  person_code String @db.VarChar(50)
+  province_code String @db.VarChar(10)
+  event String @db.VarChar(20)
+  year Int
+  status String @default("Processing") @db.VarChar(20)
+  attempts Int @default(1)
+  smtp_started_at DateTime? @db.Timestamptz(6)
+  sent_at DateTime? @db.Timestamptz(6)
+  last_error String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([concretion_code,person_kind,person_code,province_code,event,year])
+  @@unique([person_identity,event,year])
 }

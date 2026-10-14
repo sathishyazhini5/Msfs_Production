@@ -10,14 +10,12 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import swaggerJSDoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
-import cron from 'node-cron'; // Added for scheduled tasks
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { LOG_FORMAT, NODE_ENV, PORT } from './config/index.js';
 import { logger, stream } from './utils/logger.js';
 import { indexRouter } from './routes/index.js';
-import { sendTodayAnniversaries } from './controllers/Msfs/anniversarynotification.js'
-import './middlewares/anniversaryJob.js'
+import {anniversaryJob} from './middlewares/anniversaryJob.js'
 
 import {PrismaClient} from '@prisma/client';
 import {CircularQueue} from './services/circularQueue.js';
@@ -95,17 +93,6 @@ const swaggerSpecs = swaggerJSDoc(swaggerOptions);
 // Uncomment this if you wish to expose Swagger documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
-// Add cron job for daily anniversary emails
-cron.schedule('0 0 * * *', async () => {
-  logger.info('Running daily anniversary email job...');
-  try {
-    await sendTodayAnniversaries();
-    logger.info('Daily anniversary email job completed successfully.');
-  } catch (error) {
-    logger.error('Error during daily anniversary email job:', error.message);
-  }
-});
-
 // 404 Error handling for undefined routes
 app.use((req, res, next) => {
   res.status(404).json({ message: 'Resource not found' });
@@ -136,6 +123,7 @@ let shutdown;
 const stopBackend=()=>{
   if(shutdown)return shutdown;
   logger.info('Stopping API and draining the circular worker...');
+  anniversaryJob.stop();
   shutdown=Promise.all([
     new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve())),
     circularWorker.stop(),

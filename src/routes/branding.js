@@ -1,0 +1,14 @@
+import express from 'express';
+import multer from 'multer';
+import {PrismaClient} from '@prisma/client';
+import {resolveDataScope,sendScopeError} from '../utils/dataScope.js';
+import {BrandingService,MAX_LOGO_BYTES} from '../services/brandingService.js';
+import {uploadCircularBlob,downloadCircularBlob,deleteCircularBlob} from '../middlewares/azureBlob.js';
+const db=new PrismaClient();
+const service=new BrandingService({db,storage:{upload:uploadCircularBlob,download:downloadCircularBlob,remove:deleteCircularBlob}});
+export const brandingRouter=express.Router();
+const handler=fn=>async(req,res)=>{try{const scope=await resolveDataScope(req,db);res.json(await fn(scope,req));}catch(e){if(e.code==='P2021'||e.code==='P2022')return res.status(503).json({error:'Apply the circular branding migration before using Logo settings.'});sendScopeError(res,e,'Unable to load congregation branding.');}};
+const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:MAX_LOGO_BYTES,files:1,fields:0}}).single('file');
+brandingRouter.get('/branding',handler(scope=>service.public(scope)));
+brandingRouter.post('/branding/logo',(req,res,next)=>upload(req,res,e=>e?res.status(400).json({error:'Upload one logo up to 2 MB.'}):next()),handler((scope,req)=>service.save(scope,req.file)));
+brandingRouter.delete('/branding/logo',handler(scope=>service.remove(scope)));

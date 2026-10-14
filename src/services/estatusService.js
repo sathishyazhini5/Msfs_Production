@@ -9,7 +9,7 @@ export const filterFields = {
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 export const parseDirectoryQuery = (kind, query) => {
   if (!Object.hasOwn(filterFields, kind)) throw Object.assign(new Error('Directory not found.'), { status: 404 });
-  const allowed = new Set([...filterFields[kind], 'search', 'page', 'pageSize', ...(kind === 'obituary' ? ['mode', 'death_date'] : [])]);
+  const allowed = new Set([...filterFields[kind], 'search', 'page', 'pageSize', ...(kind === 'obituary' ? ['mode', 'death_date', 'from', 'to'] : [])]);
   const values = {};
   for (const [key, value] of Object.entries(query)) {
     if (!allowed.has(key) || typeof value !== 'string' || value.length > 150) throw badRequest(`Invalid parameter: ${key}`);
@@ -22,6 +22,9 @@ export const parseDirectoryQuery = (kind, query) => {
   if (values.search?.length > 100) throw badRequest('Search text is too long.');
   if (values.mode && !['today', 'all'].includes(values.mode)) throw badRequest('Invalid obituary mode.');
   if (values.death_date && (!/^\d{4}-\d{2}-\d{2}$/.test(values.death_date) || !Number.isFinite(Date.parse(values.death_date)) || new Date(values.death_date).toISOString().slice(0, 10) !== values.death_date)) throw badRequest('Invalid death date.');
+  for(const key of ['from','to'])if(values[key]&&(!/^\d{4}-\d{2}-\d{2}$/.test(values[key])||!Number.isFinite(Date.parse(values[key]))||new Date(values[key]).toISOString().slice(0,10)!==values[key]))throw badRequest('Invalid obituary date.');
+  if(values.from&&values.to&&values.from>values.to)throw badRequest('From Date must be on or before To Date.');
+  if(values.death_date&&(values.from||values.to))throw badRequest('Choose a date range or one Death date.');
   return values;
 };
 const scopeSql = (alias, codes) => codes === null ? Prisma.sql`TRUE`
@@ -78,7 +81,11 @@ export const directorySql = (kind, filters, codes) => {
   if (filters.province_code) clauses.push(Prisma.sql`r.province_code = ${filters.province_code}`);
   if (['confrere', 'scholastic'].includes(kind)) clauses.push(Prisma.sql`r.is_active = TRUE`);
   if (kind === 'obituary') {
-    if (filters.death_date) clauses.push(Prisma.sql`r.death_date::date = ${filters.death_date}::date`);
+    if(filters.from||filters.to){
+      if(filters.from)clauses.push(Prisma.sql`r.death_date >= ${new Date(`${filters.from}T00:00:00+05:30`)}`);
+      if(filters.to)clauses.push(Prisma.sql`r.death_date < ${new Date(new Date(`${filters.to}T00:00:00+05:30`).getTime()+86400000)}`);
+    }
+    else if (filters.death_date) clauses.push(Prisma.sql`r.death_date::date = ${filters.death_date}::date`);
     else if (filters.mode !== 'all') clauses.push(Prisma.sql`r.death_date::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`);
   }
   for (const field of filterFields[kind].filter((f) => !['province_code', 'division', 'state', 'designation_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'].includes(f))) {
@@ -134,7 +141,7 @@ export const directorySql = (kind, filters, codes) => {
   const extra = kind === 'centre' ? Prisma.sql`r.division_type_code, r.division_code, r.centre_place,` : kind === 'obituary' ? Prisma.sql`r.confrer_scholastic_code, r.death_date, r.death_place, r.member_type_code,` : Prisma.sql`r.member_type_code, r.image_file_path,`;
   return {
     count: Prisma.sql`SELECT count(*)::int AS total ${from}`,
-    rows: Prisma.sql`SELECT ${id} AS code, r.province_code, p.province_name, ${extra} ${name} AS name ${from} ORDER BY ${kind === 'obituary' ? Prisma.sql`r.death_date DESC NULLS LAST,` : Prisma.empty} ${name} ASC, ${id} ASC, r.province_code ASC ${kind === 'centre' ? Prisma.sql`, r.division_type_code, r.division_code` : kind === 'obituary' ? Prisma.sql`, r.confrer_scholastic_code` : Prisma.empty} LIMIT ${filters.pageSize} OFFSET ${(filters.page - 1) * filters.pageSize}`,
+    rows: Prisma.sql`SELECT ${id} AS code, r.province_code, p.province_name, ${extra} ${name} AS name ${from} ORDER BY ${kind === 'obituary' ? Prisma.sql`r.death_date DESC NULLS LAST,` : Prisma.empty} ${name} ASC, ${id} ASC, r.province_code ASC ${kind === 'centre' ? Prisma.sql`, r.division_type_code, r.division_code` : kind === 'obituary' ? Prisma.sql`, r.confrer_scholastic_code` : Prisma.empty} ${filters.exportAll?Prisma.empty:Prisma.sql`LIMIT ${filters.pageSize} OFFSET ${(filters.page - 1) * filters.pageSize}`}`,
   };
 };
 

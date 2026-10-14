@@ -8,6 +8,7 @@ import {database, loadController, response} from './helpers/controllerHarness.js
 function fixture() {
   const tables = Object.fromEntries(modules.map(m => [m.id, []]));
   Object.assign(tables, {
+    congregationBranding:[],
     province_mst:[{province_code:'P1',province_name:'Pune',concretion_code:'C1'},{province_code:'P2',province_name:'Other',concretion_code:'C2'}],
     concretion_defination_mst:[{concretion_code:'C1',concretion_name:'MSFS'},{concretion_code:'C2',concretion_name:'Other congregation'}],
     confreres_dtl: Array.from({length:61}, (_,i)=>({confrer_code:`F${i}`,province_code:i===60?'P2':'P1',first_name:`Person ${i}`,personal1_contact_no:String(9000000000+i),is_active:i%2===0,birth_date:new Date('1990-01-01')})),

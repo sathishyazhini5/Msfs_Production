@@ -21,6 +21,9 @@ before(async()=>{
  const current=await db.$queryRaw`SELECT current_schema() AS name`;assert.equal(current[0].name,schema);
  const migration=await readFile(new URL('../src/prisma/migrations/20261012120000_circular_management/migration.sql',import.meta.url),'utf8');
  for(const statement of migration.split(';').filter(s=>s.trim()))await db.$executeRawUnsafe(statement);
+ await db.$executeRawUnsafe('CREATE TABLE "concretion_defination_mst" ("concretion_code" VARCHAR(10) PRIMARY KEY)');
+ const enhancements=await readFile(new URL('../src/prisma/migrations/20261012180000_circular_branding/migration.sql',import.meta.url),'utf8');
+ for(const statement of enhancements.split(';').filter(s=>s.trim()))await db.$executeRawUnsafe(statement);
 });
 after(async()=>{if(db)await db.$disconnect();if(bootstrap){assert.match(schema,/^circular_test_[a-z0-9_]+$/);await bootstrap.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);await bootstrap.$disconnect();}});
 beforeEach(async()=>{

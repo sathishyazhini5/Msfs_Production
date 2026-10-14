@@ -1,3 +1,7 @@
+import {resolveDataScope,provinceScopeWhere} from '../../utils/dataScope.js';
+import {AnnualWishService} from '../../services/annualWishService.js';
+import {sendAccountEmail} from '../../middlewares/emailService.js';
+import {downloadCircularBlob} from '../../middlewares/azureBlob.js';
 import { sendEmail } from '../../middlewares/emailService.js';
 import { PrismaClient } from '@prisma/client';
 import { HttpException } from '../../exceptions/HttpException.js';
@@ -105,18 +109,12 @@ export const getTodayAnniversaries = async (req, res, next) => {
         personal1_contact_no AS contact_no,
         CASE
           WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Birthday'
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(baptism_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(baptism_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Baptism'
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(confirmation_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(confirmation_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Confirmation'
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(first_profession_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(first_profession_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'First Profession'
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(final_profession_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(final_profession_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Final Profession'
+
           WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Ordination'
         END AS anniversary_type,
         CASE
           WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay}`} THEN birth_date
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(baptism_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(baptism_date, 'MM-DD') = ${formattedMonthDay}`} THEN baptism_date
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(confirmation_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(confirmation_date, 'MM-DD') = ${formattedMonthDay}`} THEN confirmation_date
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(first_profession_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(first_profession_date, 'MM-DD') = ${formattedMonthDay}`} THEN first_profession_date
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(final_profession_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(final_profession_date, 'MM-DD') = ${formattedMonthDay}`} THEN final_profession_date
+  
           WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`} THEN ordination_date
         END AS anniversary_date
       FROM ${Prisma.raw(tableName)}
@@ -124,17 +122,10 @@ export const getTodayAnniversaries = async (req, res, next) => {
         ${matchFullDate
         ? Prisma.sql`
             TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
-            TO_CHAR(baptism_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
-            TO_CHAR(confirmation_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
-            TO_CHAR(first_profession_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
-            TO_CHAR(final_profession_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
+        
             TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}`
         : Prisma.sql`
             TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay} OR
-            TO_CHAR(baptism_date, 'MM-DD') = ${formattedMonthDay} OR
-            TO_CHAR(confirmation_date, 'MM-DD') = ${formattedMonthDay} OR
-            TO_CHAR(first_profession_date, 'MM-DD') = ${formattedMonthDay} OR
-            TO_CHAR(final_profession_date, 'MM-DD') = ${formattedMonthDay} OR
             TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`
       }
       )
@@ -172,147 +163,13 @@ export const getTodayAnniversaries = async (req, res, next) => {
   }
 };
 
-export const sendTodayAnniversaries = async (req, res, next) => {
-  try {
-    const today = new Date().toISOString().split('T')[0]; // Get current date in YYYY-MM-DD format
-
-    // Fetch data from confreres_dtl
-    const confreres = await prisma.$queryRaw`
-            SELECT 
-                'confrere' AS type,
-                confrer_code AS id,
-                first_name,
-                middle_name,
-                last_name,
-                personal_mailid1 AS emailid,
-                personal1_contact_no AS contact_no,
-                CASE
-                    WHEN birth_date = ${today} THEN 'Birthday'
-                    WHEN baptism_date = ${today} THEN 'Baptism'
-                    WHEN confirmation_date = ${today} THEN 'Confirmation'
-                    WHEN first_profession_date = ${today} THEN 'First Profession'
-                    WHEN final_profession_date = ${today} THEN 'Final Profession'
-                    WHEN ordination_date = ${today} THEN 'Ordination'
-                END AS anniversary_type
-            FROM confreres_dtl
-            WHERE 
-                birth_date = ${today}
-                OR baptism_date = ${today}
-                OR confirmation_date = ${today}
-                OR first_profession_date = ${today}
-                OR final_profession_date = ${today}
-                OR ordination_date = ${today};
-        `;
-
-    // Fetch data from scholastics_dtl
-    const scholastics = await prisma.$queryRaw`
-            SELECT 
-                'scholastic' AS type,
-                scholastic_code AS id,
-                first_name,
-                middle_name,
-                last_name,
-                personal_mailid1 AS emailid,
-                personal1_contact_no AS contact_no,
-                CASE
-                    WHEN birth_date = ${today} THEN 'Birthday'
-                    WHEN baptism_date = ${today} THEN 'Baptism'
-                    WHEN confirmation_date = ${today} THEN 'Confirmation'
-                    WHEN first_profession_date = ${today} THEN 'First Profession'
-                    WHEN final_profession_date = ${today} THEN 'Final Profession'
-                    WHEN ordination_date = ${today} THEN 'Ordination'
-                END AS anniversary_type
-            FROM scholastics_dtl
-            WHERE 
-                birth_date = ${today}
-                OR baptism_date = ${today}
-                OR confirmation_date = ${today}
-                OR first_profession_date = ${today}
-                OR final_profession_date = ${today}
-                OR ordination_date = ${today};
-        `;
-
-    const anniversaryList = [...confreres, ...scholastics].filter(item => item.anniversary_type);
-
-    if (anniversaryList.length === 0) {
-      if (res) {
-        return res.status(404).json({ message: 'No anniversaries found for today.' });
-      }
-      console.log('No anniversaries found for today.');
-      return;
-    }
-
-    // Send notifications
-    for (const anniversary of anniversaryList) {
-      const { type, id, first_name, middle_name, last_name, emailid, contact_no, anniversary_type } = anniversary;
-
-      const fullName = `${first_name} ${middle_name || ''} ${last_name}`.trim();
-      const subject = `Happy ${anniversary_type}! 🎉`;
-      const message = `
-                Dear ${fullName},
-
-                We wish you a very Happy ${anniversary_type}! May your day be filled with joy and blessings.
-
-                Best regards,
-                Your Team
-            `;
-
-      // Send Email
-      if (emailid) {
-        await sendEmail(emailid, subject, message);
-        console.log(`Email sent to ${emailid}`);
-      }
-
-      // Send SMS (Optional)
-      if (contact_no) {
-        console.log(`SMS sent to ${contact_no}: ${message}`);
-      }
-    }
-
-    if (res) {
-      return res.status(200).json({ message: 'Anniversary notifications sent successfully.' });
-    }
-    console.log('All anniversary emails sent successfully.');
-  } catch (error) {
-    console.error('Error sending anniversary notifications:', error.message);
-    if (res) {
-      return next(new Error('Failed to send anniversary notifications.'));
-    }
-  } finally {
-    await prisma.$disconnect();
-  }
+const annualWishes=new AnnualWishService({db:prisma,send:sendAccountEmail,download:downloadCircularBlob,log:logger});
+export const sendTodayAnniversaries=async(req,res,next)=>{
+ try {const results=await annualWishes.run();if(res)return res.json({message:'Annual wishes processed.',...results});return results;}
+ catch(error){logger.error(`Annual wish job failed: ${error.code || error.name}`);if(next)return next(error);throw error;}
 };
-
-export const sendAnniversaryEmails = async (data) => {
-  try {
-    console.log('Processing data:', data); // Debugging input data
-
-    if (!Array.isArray(data)) {
-      throw new Error('Input data must be an array.');
-    }
-
-    for (const record of data) {
-      const { emailid, first_name, last_name, anniversary_type } = record;
-
-      if (!emailid || !first_name || !anniversary_type) {
-        console.error(`Invalid record: ${JSON.stringify(record)}`);
-        continue; // Skip invalid records
-      }
-
-      const subject = `Happy ${anniversary_type}, ${first_name}!`;
-      const body = `Dear ${first_name} ${last_name || ''},\n\n` +
-        `Warm wishes on your ${anniversary_type}! Have a joyful and blessed day.\n\n` +
-        `Best regards,\nYour Team`;
-
-      await sendEmail(emailid, subject, body);
-      console.log(`Email sent to ${emailid}`);
-    }
-  } catch (error) {
-    console.error('Error sending emails:', error.message);
-    throw new Error('Failed to send anniversary emails.');
-  }
-};
-
+// Existing callers use the same durable annual identity checks and actual dates.
+export const sendAnniversaryEmails=async(data,provinceCodes=null)=>annualWishes.run(provinceCodes);
 
 export const sendAnniversaryEmail = async (req, res, next) => {
   try {
@@ -330,18 +187,19 @@ export const sendAnniversaryEmail = async (req, res, next) => {
       throw new HttpException(StatusCodes.BAD_REQUEST, 'Required fields are missing');
     }
 
+    const scope=await resolveDataScope(req,prisma);
     let confrereRecipients = [], scholasticRecipients = [];
 
     if (Array.isArray(confrer_code) && confrer_code.length > 0) {
       confrereRecipients = await prisma.confreres_dtl.findMany({
-        where: { confrer_code: { in: confrer_code } },
+        where: { confrer_code: { in: confrer_code },...provinceScopeWhere(scope.provinceCodes) },
         select: { personal_mailid1: true, first_name: true },
       });
     }
 
     if (Array.isArray(scholastic_code) && scholastic_code.length > 0) {
       scholasticRecipients = await prisma.scholastics_dtl.findMany({
-        where: { scholastic_code: { in: scholastic_code } },
+        where: { scholastic_code: { in: scholastic_code },...provinceScopeWhere(scope.provinceCodes) },
         select: { personal_mailid1: true, first_name: true },
       });
     }

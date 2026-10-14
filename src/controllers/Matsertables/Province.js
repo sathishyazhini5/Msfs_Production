@@ -1,3 +1,4 @@
+import {provinceMutationAllowed} from '../../utils/tenantHierarchy.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { sendEmail } from '../../middlewares/emailService.js';
@@ -46,12 +47,14 @@ const generateNextQuickCode = async () => {
 };
 
 export const createProvince = async (req, res, next) => {
+
   const { provinceName, shortName, email,concretionName, languageCode = 'en' } = req.body;
 
   console.log('Request body:', req.body);
 
  
   try {
+    if(!await provinceMutationAllowed(req,res,prisma))return;
     const currentUser = res.locals.user;
     const normalizedRoleName = currentUser?.role_name?.trim().toLowerCase();
     if (!['concretion admin', 'congregation admin'].includes(normalizedRoleName)) {
@@ -71,7 +74,7 @@ export const createProvince = async (req, res, next) => {
 
     const concretion = await prisma.concretion_defination_mst.findFirst({
       where: {
-        concretion_name: concretionName,
+        ...(concretionName?{concretion_name:concretionName}:{}),
         concretion_code: req.body.concretion_code  
       },
       select: { concretion_code: true },
@@ -161,6 +164,7 @@ export const createProvince = async (req, res, next) => {
 
 
 export const updateProvince = async (req, res) => {
+
 const { province_code } = req.params;
 const { province_name, short_name, email,concretionName, languageCode = 'en' } = req.body;
 
@@ -170,6 +174,7 @@ console.log('Request body:', req.body);
 
 
 try {
+    if(!await provinceMutationAllowed(req,res,prisma))return;
   // Get current user role from authentication middleware
   const updatedBy = res.locals.user?.user_id || 'Unknown';
   
@@ -252,7 +257,7 @@ try {
 export const getProvincesdetails = async (req, res, next) => {
 try {
 // Fetch all provinces data from the database
-const provinces = await prisma.province_mst.findMany();
+const provinces = await prisma.province_mst.findMany({where: req.provinceManagementWhere || {}});
 
 // Assuming you're using Prisma or any other ORM to fetch from the database
 const formattedProvinces = await Promise.all(provinces.map(async (province) => {
@@ -348,6 +353,7 @@ export const getConcretion = async (req, res) => {
 
 
 export const deleteProvince = async (req, res) => {
+
   const { province_code } = req.params;
 
   // Validate the required field
@@ -356,12 +362,13 @@ export const deleteProvince = async (req, res) => {
   }
 
   try {
+    if(!await provinceMutationAllowed(req,res,prisma))return;
     // Check for dependencies in related tables
     const relatedTables = [
       { name: 'country_mst', column: 'province_code' },
       { name: 'state_mst', column: 'province_code' },
       { name: 'division_setup_mst', column: 'province_code' },
-      { name: 'quickcode_mst', column: 'province_code' },
+
       { name: 'province_country_map_mst', column: 'province_code' },
       { name: 'apostolates_mst', column: 'province_code' },
       { name: 'users_mst', column: 'prov_concre_code' },

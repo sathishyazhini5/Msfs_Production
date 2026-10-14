@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { resolveDataScope, sendScopeError } from '../utils/dataScope.js';
 import { allowedModules, reportContext, reportRows, reportFilters, runReport } from '../services/reportService.js';
+import {BrandingService} from '../services/brandingService.js';
+import {downloadCircularBlob} from '../middlewares/azureBlob.js';
 const prisma = new PrismaClient();
 export async function reports(req, res) {
   try {
@@ -16,8 +18,11 @@ export async function reports(req, res) {
     const provinceLabels = context.provinces.map(p => p.province_name);
     result.appliedFilters.unshift(`Province scope: ${context.codes === null ? 'All authorized provinces' : provinceLabels.join(', ') || 'No provinces'}`);
     if (input.congregation) result.appliedFilters.unshift(`Congregation: ${context.congregations.find(c => c.concretion_code === input.congregation)?.concretion_name}`);
-    return res.json({...result, generatedAt: new Date().toISOString()});
+    const brandingScope=scope.role==='super admin'&&input.congregation?{...scope,role:'congregation admin',user:{...scope.user,concretion_code:input.congregation}}:scope;
+    const branding=await new BrandingService({db:prisma,storage:{download:downloadCircularBlob}}).public(brandingScope);
+    return res.json({...result,branding, generatedAt: new Date().toISOString()});
   } catch (error) {
+    if(['P2021','P2022'].includes(error.code))return res.status(503).json({error:'Report branding requires the circular branding migration.'});
     if (error.status || ['TokenExpiredError', 'JsonWebTokenError'].includes(error.name)) return sendScopeError(res, error, 'Unable to generate report.');
     console.error('Reports failed:', error.message);
     return res.status(500).json({error:'Unable to generate report. Please try again.'});

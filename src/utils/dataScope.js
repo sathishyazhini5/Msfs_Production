@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/index.js';
+import {normalizedRole} from './tenantHierarchy.js';
 
 const scopeError = (message, status = 403) => Object.assign(new Error(message), { status });
 
@@ -8,7 +9,7 @@ export const resolveDataScope = async (req, prisma, requestedProvinceCode = null
   if (!authHeader?.startsWith('Bearer ')) throw scopeError('Authentication token is required.', 401);
 
   const user = jwt.verify(authHeader.slice(7), JWT_SECRET);
-  const role = String(user.role_name || '').trim().toLowerCase();
+  const role = normalizedRole(user);
   const requested = requestedProvinceCode && requestedProvinceCode !== 'ALL'
     ? requestedProvinceCode
     : null;

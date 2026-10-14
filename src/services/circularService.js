@@ -1,8 +1,11 @@
 import {createHash, randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {provinceScopeWhere} from '../utils/dataScope.js';
+import {recipientCentreSnapshots,matchesRecipient,recipientCounts,validateHistoryFilters,circularReport} from './circularReporting.js';
+import {circularTemplate} from './circularTemplate.js';
 
 export const CATEGORIES = ['Confrere', 'Scholastics', 'Curia'];
+export const CIRCULAR_TYPES = ['Circular','Newsletter','Others'];
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTEMPTS = 3;
 export const fault = (message,status=400) => Object.assign(new Error(message),{status});
@@ -20,7 +23,9 @@ export function filtersOf(input={}) {
   const province=input.province || 'ALL', search=input.search || '';
   const categories=input.categories?.length ? input.categories : CATEGORIES;
   if (typeof province !== 'string' || province.length>10 || typeof search !== 'string' || search.length>100 || !Array.isArray(categories) || categories.some(c=>!CATEGORIES.includes(c))) throw fault('Invalid recipient filters.');
-  return {province,search:search.trim(),categories:CATEGORIES.filter(c=>categories.includes(c))};
+  const provinces=input.provinces;
+  if(provinces!==undefined && (!Array.isArray(provinces)||provinces.length>500||provinces.some(p=>typeof p!=='string'||!p||p==='ALL'||p.length>10)||new Set(provinces).size!==provinces.length))throw fault('Invalid province selection.');
+  return {province,...(provinces!==undefined?{provinces}:{}),search:search.trim(),categories:CATEGORIES.filter(c=>categories.includes(c))};
 }
 export function selectionOf(input={}) {
   const filters=filtersOf(input.filters);
@@ -79,13 +84,18 @@ export const canAccess = (scope,row) => scope.provinceCodes===null || (row.provi
 const pageOf=input=>{const page=Number(input.page || 1),pageSize=Number(input.pageSize || 25);if(!Number.isInteger(page)||page<1||!Number.isInteger(pageSize)||pageSize<1||pageSize>100)throw fault('Invalid pagination.');return {page,pageSize};};
 
 export class CircularService {
-  constructor({db,storage,mailReady=()=>false,workerEnabled=()=>false}) {this.db=db;this.storage=storage;this.mailReady=mailReady;this.workerEnabled=workerEnabled;}
+  constructor({db,storage,branding=null,mailReady=()=>false,workerEnabled=()=>false}) {this.db=db;this.storage=storage;this.branding=branding;this.mailReady=mailReady;this.workerEnabled=workerEnabled;}
   async provinces(scope) {return this.db.province_mst.findMany({where:{AND:[provinceScopeWhere(scope.provinceCodes),{province_code:{not:'ALL'}}]},select:{province_code:true,province_name:true,concretion_code:true},orderBy:{province_name:'asc'}});}
-  async metadata(scope) {actor(scope);return {provinces:await this.provinces(scope),categories:CATEGORIES,maxAttachmentBytes:MAX_ATTACHMENT_BYTES,allowedFileTypes:['.pdf','.docx','.png','.jpg','.jpeg'],sendConfigured:this.mailReady() && this.workerEnabled()};}
+  async metadata(scope) {
+    actor(scope);const provinces=await this.provinces(scope),masters=await this.db.apostolates_mst?.findMany({where:provinceScopeWhere(provinces.map(p=>p.province_code))}) || [];
+    return {role:scope.role,provinces,categories:CATEGORIES,circularTypes:CIRCULAR_TYPES,centreTypes:[...new Map(masters.filter(m=>m.centre_type_code).map(m=>[m.centre_type_code,{value:m.centre_type_code,label:m.centre_type_name || m.centre_type_code}])).values()],branding:this.branding?await this.branding.public(scope):{name:'MSFS eStatus'},maxAttachmentBytes:MAX_ATTACHMENT_BYTES,allowedFileTypes:['.pdf','.docx','.png','.jpg','.jpeg'],sendConfigured:this.mailReady() && this.workerEnabled()};
+  }
   async loadRecipients(scope,input) {
     const filters=filtersOf(input), provinces=await this.provinces(scope);
     if(filters.province!=='ALL' && !provinces.some(p=>p.province_code===filters.province)) throw fault('Province is outside your authorized scope.',403);
-    const codes=filters.province==='ALL'?provinces.map(p=>p.province_code):[filters.province];
+    if(filters.provinces!==undefined && scope.role!=='congregation admin')throw fault('Multi-province selection is available only to Congregation Admin.',403);
+    if(filters.provinces?.some(code=>!provinces.some(p=>p.province_code===code)))throw fault('Province is outside your authorized congregation.',403);
+    const codes=filters.provinces!==undefined?filters.provinces:filters.province==='ALL'?provinces.map(p=>p.province_code):[filters.province];
     const where=provinceScopeWhere(codes), selected=filters.categories;
     const [confreres,scholastics,curia]=await Promise.all([
       selected.includes('Confrere')?this.db.confreres_dtl.findMany({where:{...where,is_active:true},select:{confrer_code:true,province_code:true,first_name:true,middle_name:true,last_name:true,personal_mailid1:true}}):[],
@@ -94,9 +104,10 @@ export class CircularService {
     ]);
     const linked=curia.length?await this.db.confreres_dtl.findMany({where:{confrer_code:{in:[...new Set(curia.map(c=>c.confrer_code))]},is_active:true},select:{confrer_code:true,first_name:true,middle_name:true,last_name:true,personal_mailid1:true}}):[];
     const personMap=new Map(linked.map(p=>[p.confrer_code,p]));
+    const centresFor=await recipientCentreSnapshots(this.db,codes,[...new Set([...confreres,...curia].map(c=>c.confrer_code))],scholastics.map(s=>s.scholastic_code));
     const make=(row,category,keys,person=row)=>{
       const email=normalizeEmail(row.personal_mailid1 || person.personal_mailid1);
-      return {key:JSON.stringify([category,...keys.map(k=>row[k])]),name:nameOf(person),category,province_code:row.province_code,province:provinces.find(p=>p.province_code===row.province_code)?.province_name || row.province_code,email,emailStatus:!email?'Missing':validEmail(email)?'Valid':'Invalid'};
+      return {key:JSON.stringify([category,...keys.map(k=>row[k])]),name:nameOf(person),category,province_code:row.province_code,province:provinces.find(p=>p.province_code===row.province_code)?.province_name || row.province_code,snapshotVersion:2,centres:centresFor(category,row.province_code,row.confrer_code || row.scholastic_code),email,emailStatus:!email?'Missing':validEmail(email)?'Valid':'Invalid'};
     };
     const rows=[...confreres.map(r=>make(r,'Confrere',['confrer_code','province_code'])),...scholastics.map(r=>make(r,'Scholastics',['scholastic_code','province_code'])),...curia.filter(r=>personMap.has(r.confrer_code)).map(r=>make(r,'Curia',['curia_code','confrer_code','province_code','division_type_code','division_code'],personMap.get(r.confrer_code)))];
     const needle=filters.search.toLowerCase();
@@ -140,16 +151,19 @@ export class CircularService {
   }
   async save(scope,input,id) {
     const sender_id=actor(scope);
+    const circular_type=input.circularType ?? input.circular_type ?? 'Circular',signature=input.signature ?? '';
+    if(!CIRCULAR_TYPES.includes(circular_type)||typeof signature!=='string'||signature.length>2000)throw fault('Choose a valid Circular Type and a signature up to 2,000 characters.');
     if(typeof input.subject!=='string' || input.subject.length>200 || /[\r\n]/.test(input.subject) || typeof input.message!=='string' || input.message.length>20000)throw fault('Use a subject up to 200 characters and a message up to 20,000 characters.');
     const selection=selectionOf(input.selection), loaded=await this.loadRecipients(scope,selection.filters), picked=selectRecipients(loaded.rows,selection);
-    if(!loaded.codes.length)throw fault('No authorized provinces are available.',403);
+    const draftCodes=loaded.codes.length?loaded.codes:(await this.provinces(scope)).map(p=>p.province_code);
+    if(!draftCodes.length)throw fault('No authorized provinces are available.',403);
     const attachment_id=input.attachmentId || null;
     if(attachment_id) {
       if(!uuid(attachment_id))throw fault('Invalid attachment.');
       const attachment=await this.db.circularAttachment.findUnique({where:{id:attachment_id},include:{circular:true}});
       if(!attachment || attachment.owner_id!==sender_id || !canAccess(scope,attachment) || (attachment.circular && attachment.circular.id!==id))throw fault('Choose an attachment belonging to this draft and sender.',403);
     }
-    const data={subject:input.subject.trim(),message:input.message.trim(),selection,selection_summary:picked.counts,province_codes:picked.selected.length?[...new Set(picked.selected.map(r=>r.province_code))]:loaded.codes,attachment_id};
+    const data={subject:input.subject.trim(),message:input.message.trim(),circular_type,signature:signature.trim(),selection,selection_summary:picked.counts,province_codes:picked.selected.length?[...new Set(picked.selected.map(r=>r.province_code))]:draftCodes,attachment_id};
     if(!id)return publicCircular(await this.db.circular.create({data:{id:randomUUID(),sender_id,sender_role:scope.role,...data},include:{attachment:true}}));
     if(!Number.isInteger(input.version) || input.version<1)throw fault('A valid draft version is required.');
     const prior=await this.get(scope,id);if(prior.sender_id!==sender_id)throw fault('Only the sender can edit this draft.',403);
@@ -163,8 +177,11 @@ export class CircularService {
     if(!row.subject.trim() || !row.message.trim() || !row.attachment)throw fault('Subject, message and circular attachment are required.');
     const loaded=await this.loadRecipients(scope,row.selection.filters), picked=selectRecipients(loaded.rows,row.selection);
     if(!picked.recipients.length)throw fault('Select at least one recipient with a valid email.');
-    const reviewToken=createHash('sha256').update(JSON.stringify([row.version,row.subject,row.message,row.attachment.sha256,picked.counts,picked.recipients])).digest('hex');
-    return {circular:publicCircular(row),counts:picked.counts,recipients:picked.recipients,reviewToken,version:row.version};
+    const contentSnapshot={subject:row.subject,message:row.message,circular_type:row.circular_type || 'Circular',signature:row.signature || '',branding:this.branding?await this.branding.snapshot(scope):{name:'MSFS eStatus'}};
+    const reviewToken=createHash('sha256').update(JSON.stringify([row.version,contentSnapshot,row.attachment.sha256,picked.counts,picked.recipients])).digest('hex');
+    const previewBranding=this.branding?await this.branding.public(scope):contentSnapshot.branding;
+    const preview=circularTemplate(contentSnapshot);preview.html=preview.html.replace('cid:congregation-logo',previewBranding.logoDataUrl || '');
+    return {circular:publicCircular(row),counts:picked.counts,recipients:picked.recipients,reviewToken,version:row.version,contentSnapshot,emailPreview:preview};
   }
   async queue(scope,id,input) {
     const row=await this.get(scope,id), sender=actor(scope);
@@ -176,7 +193,7 @@ export class CircularService {
     const review=await this.review(scope,id);
     if(input.version!==review.version || input.reviewToken!==review.reviewToken)throw fault('The draft or recipient list changed. Review the circular again.',409);
     return this.db.$transaction(async tx=>{
-      const changed=await tx.circular.updateMany({where:{id,status:'Draft',version:review.version},data:{status:'Queued',submission_key,queued_at:new Date(),version:{increment:1},recipient_count:review.recipients.length,selection_summary:review.counts,province_codes:[...new Set(review.recipients.flatMap(r=>r.sources.map(s=>s.province_code)))]}});
+      const changed=await tx.circular.updateMany({where:{id,status:'Draft',version:review.version},data:{status:'Queued',content_snapshot:review.contentSnapshot,submission_key,queued_at:new Date(),version:{increment:1},recipient_count:review.recipients.length,selection_summary:review.counts,province_codes:[...new Set(review.recipients.flatMap(r=>r.sources.map(s=>s.province_code)))]}});
       if(!changed.count) {
         const existing=await tx.circular.findUnique({where:{id},include:{attachment:true}});
         if(existing.submission_key===submission_key)return publicCircular(existing);
@@ -186,18 +203,24 @@ export class CircularService {
       return publicCircular(await tx.circular.findUnique({where:{id},include:{attachment:true}}));
     });
   }
-  async detail(scope,id) {const row=await this.get(scope,id);const recipients=await this.db.circularRecipient.findMany({where:{circular_id:id},orderBy:{email:'asc'}});return {...publicCircular(row),recipients};}
+  async detail(scope,id,input={}) {validateHistoryFilters(input);const row=await this.get(scope,id);const all=await this.db.circularRecipient.findMany({where:{circular_id:id},orderBy:{email:'asc'}});const recipients=input.province||input.centreType?all.filter(r=>matchesRecipient(r,input)):all;return {...publicCircular(row),recipients,matchingCounts:recipientCounts(recipients),totalCounts:recipientCounts(all)};}
   async list(scope,input) {
     actor(scope);const {page,pageSize}=pageOf(input), statuses=['Draft','Queued','Processing','Sent','Failed','Partial Success'];
+    validateHistoryFilters(input);
+    if(input.province && !(await this.provinces(scope)).some(p=>p.province_code===input.province))throw fault('Province is outside your authorized scope.',403);
     if(input.status && !statuses.includes(input.status))throw fault('Invalid circular status.');
     if(input.search && (typeof input.search!=='string'||input.search.length>100))throw fault('Search must be at most 100 characters.');
     for(const key of ['from','to'])if(input[key] && (typeof input[key]!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(input[key]) || !Number.isFinite(Date.parse(input[key])) || new Date(input[key]).toISOString().slice(0,10)!==input[key]))throw fault('Invalid history date.');
     if(input.from && input.to && input.from>input.to)throw fault('Start date must precede end date.');
-    const where={status:input.tab==='drafts'?'Draft':input.status || {not:'Draft'},...(input.search?{subject:{contains:input.search,mode:'insensitive'}}:{}),...(input.from||input.to?{created_at:{...(input.from?{gte:new Date(input.from)}:{}),...(input.to?{lt:new Date(new Date(input.to).getTime()+86400000)}:{})}}:{})};
+    const where={status:input.tab==='drafts'?'Draft':input.status || {not:'Draft'},...(input.circularType?{circular_type:input.circularType}:{}),...(input.search?{subject:{contains:input.search,mode:'insensitive'}}:{}),...(input.from||input.to?{created_at:{...(input.from?{gte:new Date(`${input.from}T00:00:00+05:30`)}:{}),...(input.to?{lt:new Date(new Date(`${input.to}T00:00:00+05:30`).getTime()+86400000)}:{})}}:{})};
     if(input.tab==='drafts')where.sender_id=actor(scope);
     if(scope.provinceCodes!==null)where.province_codes={hasSome:scope.provinceCodes};
-    const rows=(await this.db.circular.findMany({where,include:{attachment:true},orderBy:{created_at:'desc'}})).filter(row=>canAccess(scope,row) && (row.status!=='Draft' || row.sender_id===actor(scope)));
-    return {records:rows.slice((page-1)*pageSize,page*pageSize).map(publicCircular),total:rows.length,page,pageSize};
+    let rows=(await this.db.circular.findMany({where,include:{attachment:true},orderBy:[{[input.sort || 'created_at']:input.direction || 'desc'},{id:'asc'}]})).filter(row=>canAccess(scope,row) && (row.status!=='Draft' || row.sender_id===actor(scope)));
+    const recipients=rows.length?await this.db.circularRecipient.findMany({where:{circular_id:{in:rows.map(r=>r.id)}},orderBy:{email:'asc'}}):[];
+    const historicalTypes=[...new Map(recipients.flatMap(r=>r.snapshot?.sources || []).flatMap(s=>s.centres || []).filter(c=>c.centre_type_code).map(c=>[c.centre_type_code,{value:c.centre_type_code,label:c.centre_type_name || c.centre_type_code}])).values()];
+    rows=rows.map(row=>{const all=recipients.filter(r=>r.circular_id===row.id),matching=input.province||input.centreType?all.filter(r=>matchesRecipient(r,input)):all;return {...publicCircular(row),matchingCounts:recipientCounts(matching),totalCounts:recipientCounts(all)};}).filter(row=>!(input.province||input.centreType)||row.matchingCounts.total>0);
+    if(input.exportAll)return circularReport(rows,recipients,input,this.branding?await this.branding.public(scope):{name:'MSFS eStatus'});
+    return {records:rows.slice((page-1)*pageSize,page*pageSize),total:rows.length,page,pageSize,historicalCentreTypes:historicalTypes};
   }
   async retry(scope,id) {
     const row=await this.get(scope,id);

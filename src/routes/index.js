@@ -1,3 +1,6 @@
+import {PrismaClient} from '@prisma/client';
+import {createMemberGuard} from '../middlewares/memberGuard.js';
+import {memberAccessRouter} from './memberAccess.js';
 import express from 'express';
 import { authenticate } from '../middlewares/authenticate.js';
 import { authRouter } from './auth.js';
@@ -60,6 +63,8 @@ import { circularsRouter } from './circulars.js';
 
 
 import { estatusRouter } from './estatus.js';
+import {brandingRouter} from './branding.js';
+import {platformRouter} from './platform.js';
 const router = express.Router();
 
 router.use(authRouter);
@@ -70,6 +75,9 @@ router.use((req, res, next) => {
   if (req.method === 'POST' && publicAuthPaths.has(req.path.toLowerCase())) return next();
   return authenticate(req, res, next);
 });
+
+router.use(createMemberGuard(new PrismaClient()));
+router.use(memberAccessRouter);
 
 router.use(depaturerouter);
 router.use(metarouter);
@@ -127,5 +135,7 @@ router.use(notificationRouter)
 router.use(activityRouter)
 router.use(reportsRouter)
 router.use(circularsRouter)
+router.use(brandingRouter)
+router.use(platformRouter)
 
 export const indexRouter = router;

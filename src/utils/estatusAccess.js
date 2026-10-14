@@ -7,7 +7,7 @@ export function requireEstatusAccess(req) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) throw Object.assign(new Error('Authentication is required.'), { status: 401 });
   const user = jwt.verify(header.slice(7), JWT_SECRET);
-  if (!['super admin', 'congregation admin', 'province admin'].includes(String(user.role_name || '').trim().toLowerCase())) {
+  if (!['super admin', 'congregation admin', 'province admin', 'estatus member'].includes(String(user.role_name || '').trim().toLowerCase())) {
     throw Object.assign(new Error('This role is not authorized to access eStatus.'), { status: 403 });
   }
   return user;

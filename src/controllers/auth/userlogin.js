@@ -1,3 +1,4 @@
+import {MemberAccessService,MEMBER_ROLE} from '../../services/memberAccessService.js';
 import { PrismaClient } from "@prisma/client";
 import { HttpException } from "../../exceptions/HttpException.js";
 import { StatusCodes } from "http-status-codes";
@@ -11,15 +12,16 @@ const { sign } = jwt;
 
 export const login = async (req, res, next) => {
   try {
-    const { user_id, password } = req.body;
+    const { password } = req.body;
+    const user_id=String(req.body.user_id || '').trim();
 
     if (!user_id || !password) {
       throw new HttpException(StatusCodes.BAD_REQUEST, 'User ID and password are required');
     }
 
     // 🔍 Find user and include activities
-    const user = await prisma.users_mst.findFirst({
-      where: { user_id },
+    const candidates = await prisma.users_mst.findMany({
+      where: { OR:[{user_id},{user_id:{equals:user_id.toLowerCase(),mode:'insensitive'},role_code:'MEMBER'}] },
       include: {
         user_role_com_activity_mst: {
           include: {
@@ -28,7 +30,9 @@ export const login = async (req, res, next) => {
         },
       },
     });
- 
+
+    if(candidates.length>1)throw new HttpException(StatusCodes.UNAUTHORIZED,'Account identity is ambiguous. Contact your administrator.');
+    const user=candidates[0];
     if (!user) {
       logger.warn(`Login attempt with invalid user_id: ${user_id}`);
       throw new HttpException(StatusCodes.UNAUTHORIZED, 'Incorrect user ID');
@@ -46,6 +50,8 @@ if (!user.password) {
 // Check if stored password is bcrypt hashed
 const isBcryptHash = user.password.startsWith('$2a$') || user.password.startsWith('$2b$') || user.password.startsWith('$2y$');
 
+if((user.role_name===MEMBER_ROLE || user.role_code==='MEMBER') && !isBcryptHash)throw new HttpException(StatusCodes.UNAUTHORIZED,'Member password setup is required.');
+
 if (isBcryptHash) {
   isPasswordValid = await bcrypt.compare(password, user.password);
 } else {
@@ -57,6 +63,12 @@ if (!isPasswordValid) {
   throw new HttpException(StatusCodes.UNAUTHORIZED, 'Incorrect password');
 }
     // 🔎 Get role name from quickcode
+    if(user.role_name===MEMBER_ROLE || user.role_code==='MEMBER') {
+      const access=await new MemberAccessService({db:prisma}).active(user.user_id);
+      const congregation=await prisma.concretion_defination_mst.findUnique({where:{concretion_code:access.concretion_code}});
+      const tokenData={user_id:user.user_id,role_name:MEMBER_ROLE,role_code:'MEMBER',user_type_code:'MEMBER',concretion_code:access.concretion_code,concretion_name:congregation?.concretion_name,province_code:access.province_code};
+      return res.status(200).json({accessToken:sign(tokenData,JWT_SECRET,{expiresIn:EXPIRY_TIME}),data:{...tokenData,user_role_com_activity_mst:[]},redirect:'/estatus',message:'Login successful'});
+    }
     const quickcode = await prisma.quickcode_mst.findFirst({
       where: {
         quick_code: user.role_code.trim(),

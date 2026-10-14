@@ -1,0 +1,9 @@
+export const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const lines=value=>escapeHtml(value).replace(/\r\n?|\n/g,'<br>');
+export function circularTemplate({subject,message,signature='',circular_type='Circular',branding={name:'MSFS eStatus'}}) {
+  const name=branding.name || 'MSFS eStatus';
+  const text=`${name}\n${circular_type}\n${subject}\n\n${message}\n\nRegards,${signature?'\n'+signature:''}`;
+  const logo=branding.logo_key?`<img src="cid:congregation-logo" width="120" alt="${escapeHtml(name)} logo" style="display:block;max-width:120px;height:auto;margin-bottom:14px;">`:'';
+  const html=`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#243447;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px;"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #e2e8f0;"><tr><td style="padding:28px;background:#1976d2;color:#fff;">${logo}<div style="font-size:20px;font-weight:bold;">${escapeHtml(name)}</div><div style="margin-top:8px;font-size:13px;">${escapeHtml(circular_type)}</div></td></tr><tr><td style="padding:28px;"><h1 style="font-size:22px;line-height:30px;margin:0 0 22px;">${escapeHtml(subject)}</h1><div style="font-size:15px;line-height:25px;overflow-wrap:anywhere;">${lines(message)}</div><p style="font-size:15px;line-height:25px;margin:28px 0 0;">Regards,<br>${lines(signature)}</p></td></tr><tr><td style="padding:18px 28px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;">${escapeHtml(name)} · eStatus Communications</td></tr></table></td></tr></table></body></html>`;
+  return {html,text};
+}

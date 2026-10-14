@@ -210,6 +210,13 @@ export const createConcretion = async (req, res, next) => {
 
 export const getConcretions = async (req, res, next) => {
   try {
+    const user=res.locals.user,role=String(user?.role_name || '').trim().toLowerCase();
+    if(role!=='super admin') {
+      let code=user?.concretion_code;
+      if(!code&&user?.province_code)code=(await prisma.province_mst.findUnique({where:{province_code:user.province_code}}))?.concretion_code;
+      if(!code)return res.status(403).json({error:'Congregation scope is missing.'});
+      return res.json(await prisma.concretion_defination_mst.findMany({where:{concretion_code:code}}));
+    }
     // Write a raw SQL query to join concretion_defination_mst with province_mst based on province_code
     const concretions = await prisma.$queryRaw`
       SELECT 

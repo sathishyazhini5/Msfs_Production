@@ -1,5 +1,6 @@
 import {randomUUID,createHash} from 'node:crypto';
 import {MAX_ATTEMPTS} from './circularService.js';
+import {circularTemplate} from './circularTemplate.js';
 
 export function failurePolicy(error,attempts,started) {
   const code=Number(error.responseCode);
@@ -58,10 +59,19 @@ export class CircularQueue {
       if(!cache.has(circular.attachment.id))cache.set(circular.attachment.id,this.download(circular.attachment.blob_key));
       const buffer=await cache.get(circular.attachment.id);
       if(createHash('sha256').update(buffer).digest('hex')!==circular.attachment.sha256)throw new Error('Attachment checksum mismatch.');
+      const content=circular.content_snapshot || {subject:circular.subject,message:circular.message,signature:circular.signature || '',circular_type:circular.circular_type || 'Circular',branding:{name:'MSFS eStatus'}};
+      const template=circularTemplate(content);let logo;
+      if(content.branding?.logo_key){
+        const key=content.branding.logo_key;
+        if(!cache.has(key))cache.set(key,this.download(key));
+        const image=await cache.get(key);
+        if(createHash('sha256').update(image).digest('hex')!==content.branding.sha256)throw new Error('Branding checksum mismatch.');
+        logo={buffer:image,mime_type:content.branding.mime_type};
+      }
       const marked=await this.db.circularRecipient.updateMany({where:guard,data:{smtp_started_at:new Date()}});
       if(marked.count!==1)return;
       started=true;
-      const info=await this.send({to:row.email,subject:circular.subject,text:circular.message,
+      const info=await this.send({to:row.email,subject:content.subject,...template,logo,
         messageId:`<circular-${row.id}@estatus.msfs>`,attachment:{filename:circular.attachment.filename,mime_type:circular.attachment.mime_type,buffer}});
       const accepted=Array.isArray(info?.accepted) && info.accepted.some(email=>String(email).trim().toLowerCase()===row.email);
       if(!accepted) {
