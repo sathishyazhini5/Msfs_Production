@@ -13,6 +13,7 @@ const logoPath = path.join(__dirname, 'MSFSLOGO/MSFS.png');
 
 import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "../../config/index.js";
+import { eventDateFilter } from '../../services/dashboardOccasionsService.js';
 import { provinceScopeWhere, resolveDataScope, sendScopeError } from '../../utils/dataScope.js';
 // Function to generate the next event_id as a formatted string
 const generateNextEventId = async () => {
@@ -40,10 +41,11 @@ export const getAllEvents = async (req, res) => {
     try {
         const { provinceCodes } = await resolveDataScope(req, prisma, req.query.province_code || null);
 
+        const dateWhere=eventDateFilter(req.query.date);
         // Fetch events based on the province_code
         const events = await prisma.event_dtl.findMany({
           where: {
-            ...provinceScopeWhere(provinceCodes),
+            ...provinceScopeWhere(provinceCodes), ...dateWhere,
           },
         });
 
@@ -286,22 +288,12 @@ export const saveEvent = async (req, res) => {
       return res.status(401).json({ error: errorMessage });
     }
 
-    const provinceNameFromToken = decoded.province_name;
     const createdBy = decoded.role_name || decoded.username || 'Unknown';
-    if (!provinceNameFromToken) {
-      return res.status(400).json({ error: "Province information is missing in token" });
-    }
-
-    // Fetch the province_code using the province_name from the token
-    const province = await prisma.province_mst.findFirst({
-      where: { province_name: provinceNameFromToken },
-      select: { province_code: true },
-    });
-
-    if (!province || !province.province_code) {
-      return res.status(404).json({ error: `Province '${provinceNameFromToken}' not found.` });
-    }
-
+    const { provinceCodes } = await resolveDataScope(req, prisma);
+    const requested = req.body.province_code || decoded.province_code;
+    if (!requested || (provinceCodes !== null && !provinceCodes.includes(requested))) return res.status(403).json({error:'Select a province within your authorized scope.'});
+    const province = await prisma.province_mst.findFirst({where:{province_code:requested}});
+    if (!province) return res.status(404).json({error:'Province not found.'});
     const province_code = province.province_code;
 
     // Generate the new event_id

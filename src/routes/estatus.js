@@ -1,4 +1,5 @@
 import { getScholasticDetails } from '../controllers/Msfs/scholastics.js';
+import { memberRecordProjection } from '../utils/memberRecordPolicy.js';
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { sendScopeError } from '../utils/dataScope.js';
@@ -33,6 +34,10 @@ estatusRouter.get('/estatus/:kind/record/:code', async (req, res, next) => {
     if (!record) return res.status(404).json({ error: 'Record not found.' });
     setEstatusRecordWhere(req, identity);
     req.params[key] = req.params.code;
+    if (req.memberProvinceCodes) {
+      const originalJson = res.json.bind(res);
+      res.json = body => originalJson(res.statusCode < 400 ? memberRecordProjection(body) : body);
+    }
     return await handler(req, res, next);
   } catch (error) {
     return sendScopeError(res, error, 'Unable to load eStatus profile.');

@@ -14,7 +14,9 @@
     "prisma:generate": "prisma generate",
     "circulars:worker": "node src/workers/circularWorker.js",
     "test:member-platform": "node --test tests/memberAnnual.test.js tests/memberWishMigration.test.js tests/enhancements.test.js tests/estatus.test.js",
-    "test:circulars": "node --test tests/circulars.test.js tests/circularQueue.test.js tests/circularWorkerRuntime.test.js"
+    "test:circulars": "node --test tests/circulars.test.js tests/circularQueue.test.js tests/circularWorkerRuntime.test.js",
+    "members:provision": "node scripts/provisionMembers.js",
+    "members:welcome": "node scripts/memberWelcomeWorker.js"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma"

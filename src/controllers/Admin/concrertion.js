@@ -89,7 +89,7 @@ export const createConcretion = async (req, res, next) => {
     languageCode = 'en'
   } = req.body;
 
-  console.log('Request body:', req.body);
+  if (status !== undefined && !['Active','Inactive'].includes(status)) return res.status(400).json({error:'Status must be Active or Inactive.'});
 
   // Validate the required fields
   if (!concretionName || !email) {
@@ -133,7 +133,7 @@ export const createConcretion = async (req, res, next) => {
         mobile_isd: mobileIsd,
         mobile_no: mobileNo ? mobileNo.toString() : null,
         email,
-        status,
+        status: status || 'Active',
         created_by: currentUserRole,
         created_date: new Date(),
       },
@@ -328,6 +328,8 @@ export const getConcretions = async (req, res, next) => {
 // };
 
 export const updateConcretion = async (req, res) => {
+  if (res.locals.user?.role_name?.trim().toLowerCase() !== 'super admin') return res.status(403).json({error:'Only Super Admin users can change Congregation records.'});
+  if (req.body.status !== undefined && !['Active','Inactive'].includes(req.body.status)) return res.status(400).json({error:'Status must be Active or Inactive.'});
   const { concretion_code } = req.params; // Get the concretion code from the request parameters
   console.log(concretion_code)
   const {

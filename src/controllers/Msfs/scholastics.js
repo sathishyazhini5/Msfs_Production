@@ -1,3 +1,4 @@
+import {provisionCreatedMember} from '../../services/memberCreationHook.js';
 import { estatusRecordWhere } from '../../utils/estatusAccess.js';
 import { recordWhere } from '../../utils/recordAccess.js';
 import { PrismaClient } from '@prisma/client';
@@ -94,7 +95,6 @@ export const saveScholasticDetail = async (req, res) => {
         { field: "confirmation_date", message: "Confirmation date is required" },
         { field: "personal1_contact_no", message: "Personal Contact Number 1 is required" },
         { field: "personal1_isd", message: "Personal isd 1 is required" },
-        { field: "personal_mailid1", message: "Personal Email is required" },
         { field: "blood_group_code", message: "Blood Group is required" },
         { field: "nationality_code", message: "Nationality is required" },
       ];
@@ -110,14 +110,14 @@ export const saveScholasticDetail = async (req, res) => {
       }
 
 
-      const existingEmail = await prisma.scholastics_dtl.findFirst({
+      const existingEmail = personal_mailid1 ? await prisma.scholastics_dtl.findFirst({
         where: {
           personal_mailid1: {
             equals: personal_mailid1,
             mode: 'insensitive' // Case-insensitive check
           }
         }
-      });
+      }) : null;
 
       if (existingEmail) {
         return res.status(400).json({ error: 'Email already exists.' });
@@ -190,7 +190,7 @@ export const saveScholasticDetail = async (req, res) => {
           watsup1_no: watsup1_no ? BigInt(watsup1_no) : null,
           emergency_isd: emergency_isd || null,
           emergency_contact_no: emergency_contact_no ? BigInt(emergency_contact_no) : null,
-          personal_mailid1,
+          personal_mailid1: personal_mailid1 || '',
           blood_group_code: blood_group_code || null,
           nationality_code: nationality_code || null,
           language_code,
@@ -207,6 +207,7 @@ export const saveScholasticDetail = async (req, res) => {
         )
       );
 
+      responseData.member_access=await provisionCreatedMember(prisma,'Scholastic',newScholastic,res.locals.user?.user_id || 'administrator');
       res.status(201).json(responseData);
     } catch (error) {
       console.log(error);
@@ -742,9 +743,9 @@ export const saveScholasticByExcel = async (req, res) => {
           scholastic_code = `SCH${String(lastCode + 1).padStart(3, '0')}`;
         }
 
-        const existingConfrere = await prisma.scholastics_dtl.findFirst({
+        const existingConfrere = row['Personal Email'] ? await prisma.scholastics_dtl.findFirst({
           where: { personal_mailid1: row['Personal Email'] },
-        });
+        }) : null;
 
         if (existingConfrere) {
           failedRecords.push({ row, error: 'Email already exists' });
@@ -772,15 +773,16 @@ export const saveScholasticByExcel = async (req, res) => {
           watsup1_no: row['Watsup No'] ? BigInt(row['Watsup No']) : null,
           emergency_isd: row['Emergency ISD'] ? String(row['Emergency ISD']) : null,
           emergency_contact_no: row['Emergency Contact No'] ? BigInt(row['Emergency Contact No']) : null,
-          personal_mailid1: row['Personal Email'],
+          personal_mailid1: row['Personal Email'] || '',
           language_code: 'en',
           concurrency_val: 1,
           created_by: res.locals.user?.user_id || createdBy,
           created_date: row['Created Date'] ? new Date(row['Created Date']) : new Date(),
         };
 
-        await prisma.scholastics_dtl.create({ data: newScholasticData });
-        successRecords.push(row);
+        const createdMember=await prisma.scholastics_dtl.create({ data: newScholasticData });
+        const member_access=await provisionCreatedMember(prisma,'Scholastic',createdMember,res.locals.user?.user_id || 'import');
+        successRecords.push({...row,member_access});
       } catch (err) {
         failedRecords.push({ row, error: err.message });
       }

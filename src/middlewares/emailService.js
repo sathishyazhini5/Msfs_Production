@@ -1,3 +1,4 @@
+import { withExploreMore } from '../services/emailFooter.js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -18,6 +19,8 @@ const transporter = nodemailer.createTransport({
     pass: process.env.GMAIL_PASS, // Your Gmail password or app password
   },
 });
+
+transporter.use('compile', (mail, done) => { mail.data = withExploreMore(mail.data); done(); });
 
 // Existing function (unchanged)
 export const sendEmail = async (to, subject, text,firstName = 'Member') => {
@@ -112,6 +115,7 @@ export const sendRichEmail = async ({ to, subject, text, html  }) => {
 
 // Reuse the existing account configuration with bounded circular-only timeouts.
 const circularTransport = nodemailer.createTransport({...transporter.options, connectionTimeout:30000, greetingTimeout:30000, socketTimeout:60000});
+circularTransport.use('compile', (mail, done) => { mail.data = withExploreMore(mail.data); done(); });
 // One envelope per recipient; never add CC/BCC or log recipient addresses.
 export const circularMailConfigured = () => Boolean(process.env.GMAIL_USER && process.env.GMAIL_PASS);
 export const sendCircularEmail = async ({to, subject, text, html, logo, attachment, messageId}) => {

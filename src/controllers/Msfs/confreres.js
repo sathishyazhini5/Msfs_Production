@@ -1,3 +1,4 @@
+import {provisionCreatedMember} from '../../services/memberCreationHook.js';
 import { recordWhere } from '../../utils/recordAccess.js';
 import { estatusRecordWhere } from '../../utils/estatusAccess.js';
 import { mapConfrereImportRow, importFingerprint, normalizeConfrerePhones, retryableConfrereRow } from '../../utils/confrereImport.js';
@@ -97,7 +98,7 @@ const processConfrereExcelJob = async (jobId) => {
         data.import_key = importFingerprint(province.province_code, data);
         data.created_date = new Date();
         const imported = await prisma.confreres_dtl.findUnique({ where: { import_key: data.import_key } });
-        if (imported) { successRecords.push({ ...row, confrer_code: imported.confrer_code, skipped: true }); continue; }
+        if (imported) { const member_access=await provisionCreatedMember(prisma,'Confrere',imported,decoded.user_id || 'import');successRecords.push({ ...row, confrer_code: imported.confrer_code, skipped: true, member_access }); continue; }
         if (data.personal_mailid1) {
           const existing = await prisma.confreres_dtl.findFirst({ where: { personal_mailid1: { equals: data.personal_mailid1, mode: 'insensitive' } } });
           if (existing) throw new Error('personal_mailid1: this email already belongs to an existing Confrere. Review that record instead of importing a duplicate.');
@@ -112,7 +113,8 @@ const processConfrereExcelJob = async (jobId) => {
           source: 'EXCEL',
         });
 
-        successRecords.push({ ...row, confrer_code: created.confrer_code });
+        const member_access=await provisionCreatedMember(prisma,'Confrere',created,decoded.user_id || 'import');
+        successRecords.push({ ...row, confrer_code: created.confrer_code, member_access });
       } catch (error) {
         console.error(`Error processing row: ${error.message}`, row);
         failedRecords.push({ row, rowNumber: (row.__rowNum__ ?? index + 1) + 1, error: error.message });
@@ -613,8 +615,9 @@ export const saveConfrere = async (req, res) => {
       source: 'MANUAL',
     });
 
+    const member_access=await provisionCreatedMember(prisma,'Confrere',result,res.locals.user?.user_id || 'administrator');
     const responseResult = {
-      ...result,
+      ...result, member_access,
       personal1_contact_no: result.personal1_contact_no?.toString() || null,
       personal2_contact_no: result.personal2_contact_no?.toString() || null,
       personal3_contact_no: result.personal3_contact_no?.toString() || null,

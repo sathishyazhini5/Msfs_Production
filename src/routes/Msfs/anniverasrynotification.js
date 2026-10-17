@@ -1,3 +1,4 @@
+import { getUpcomingAnniversaries } from '../../controllers/Msfs/anniversarynotification.js';
 import {PrismaClient} from '@prisma/client';
 import {resolveDataScope,sendScopeError} from '../../utils/dataScope.js';
 const wishDb=new PrismaClient();
@@ -27,6 +28,7 @@ router.post('/sendAnniversaryEmails', async (req, res) => {
         res.status(400).json({ message: error.message || 'Failed to send emails.' });
     }
 });
+router.get('/getUpcomingAnniversaries', getUpcomingAnniversaries);
 router.get('/getTodayAnniversaries', getTodayAnniversaries);
 // router.post('/sendAnniversaryEmails', sendTodayAnniversaries);
 

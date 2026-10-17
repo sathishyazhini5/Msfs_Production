@@ -2,13 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { createRequire, isBuiltin } from 'node:module';
 import { pathToFileURL } from 'node:url';
 let serial = 0;
-export async function loadController(relative, prisma) {
+export async function loadController(relative, prisma, {send} = {}) {
   const url = new URL(relative, import.meta.url);
   const require = createRequire(url);
   const key = `test-prisma-${++serial}`;
   globalThis[key] = prisma;
+  if (send) globalThis[`${key}-send`] = send;
   let source = await readFile(url, 'utf8');
   source = source.replace(/const prisma = new PrismaClient\(\);/, `const prisma = globalThis[${JSON.stringify(key)}];`);
+  if (send) source = source.replace('send:sendAccountEmail', `send:globalThis[${JSON.stringify(`${key}-send`)}]`);
   source = source.replace(/from (['"])([^'"]+)\1/g, (_, quote, specifier) => {
     const resolved = specifier.startsWith('.') ? new URL(specifier, url).href
       : isBuiltin(specifier) ? specifier : pathToFileURL(require.resolve(specifier)).href;

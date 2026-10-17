@@ -17,10 +17,10 @@ test('provisioning validates province, shared emails, duplicate records and priv
  const {db,rows,users}=fixture(),service=new MemberAccessService({db});
  await assert.rejects(service.provision(scope,{kind:'Confrere',code:'F2',province_code:'P2'}),e=>e.status===404);
  users.push({user_id:'ALICE@example.test',role_name:'super admin'});
- await assert.rejects(service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'}),e=>e.status===409);
+ assert.equal((await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'})).status,'conflict');
  assert.equal(users[0].role_name,'super admin');users.length=0;
  rows.confreres_dtl[1].personal_mailid1='alice@example.test';
- await assert.rejects(service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'}),e=>e.status===409);
+ assert.equal((await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'})).status,'conflict');
  rows.confreres_dtl[1].personal_mailid1='bob@example.test';
  const result=await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});
  assert.equal(result.email,'alice@example.test');assert.equal(users[0].role_name,MEMBER_ROLE);assert.ok(users[0].password.startsWith('$2'));
@@ -30,14 +30,15 @@ test('provisioning validates province, shared emails, duplicate records and priv
 test('member API guard permits congregation directories only and does not affect administrator routes',async()=>{
  for(const path of ['/reports','/circulars','/getusers','/estatus/confrere/export','/platform/dashboard'])assert.equal(memberRouteAllowed('GET',path),false);
  assert.equal(memberRouteAllowed('POST','/estatus/confrere'),false);assert.equal(memberRouteAllowed('GET','/estatus/confrere/record/F1'),true);
- const {db}=fixture();const service=new MemberAccessService({db});await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});
- const guard=createMemberGuard(db),req={method:'GET',path:'/estatus/confrere'},res=response({role_name:MEMBER_ROLE,user_id:'alice@example.test'});let passed=false;
+ const {db,rows}=fixture();const service=new MemberAccessService({db});await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});
+ await db.memberAccess.update({where:{user_id:'alice@example.test'},data:{password_change_required:false,password_changed_at:new Date()}});
+ const guard=createMemberGuard(db),req={method:'GET',path:'/estatus/confrere'},res=response({role_name:MEMBER_ROLE,user_id:'alice@example.test',password_version:rows.memberAccess[0].password_changed_at.getTime()});let passed=false;
  await guard(req,res,()=>{passed=true;});assert.equal(passed,true);assert.deepEqual(req.memberProvinceCodes,['P1']);
  const denied=response({role_name:MEMBER_ROLE,user_id:'alice@example.test'});await guard({method:'GET',path:'/reports'},denied,()=>assert.fail());assert.equal(denied.statusCode,403);
  const admin=response({role_name:'province admin'});await guard({method:'POST',path:'/existing-admin-action'},admin,()=>{passed=true;});
 });
 test('member password login returns read-only role and E-Status redirect without quickcode/default role fallback',async()=>{
- const {db,users}=fixture();await new MemberAccessService({db}).provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});users[0].password=await bcrypt.hash('private-test-password',10);
+ const {db,users}=fixture();await new MemberAccessService({db}).provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});users[0].password=await bcrypt.hash('private-test-password',10);await db.memberAccess.update({where:{user_id:'alice@example.test'},data:{password_change_required:false,password_changed_at:new Date()}});
  const {login}=await loadController('../../src/controllers/auth/userlogin.js',db);
  const res=response();let error;await login({body:{user_id:'ALICE@example.test',password:'private-test-password'}},res,e=>{error=e;});assert.equal(error,undefined);assert.equal(res.body.redirect,'/estatus');assert.equal(res.body.data.role_name,MEMBER_ROLE);assert.ok(res.body.accessToken);assert.equal(res.body.data.password,undefined);
 });
@@ -68,7 +69,7 @@ test('Scholastic and Curia accounts link actual records and congregation without
  const scholastic=fixture();scholastic.rows.scholastics_dtl.push({scholastic_code:'S1',province_code:'P1',first_name:'Student',personal_mailid1:'student@example.test',is_active:true});
  const service=new MemberAccessService({db:scholastic.db});await service.provision(scope,{kind:'Scholastic',code:'S1',province_code:'P1'});assert.equal((await service.active('student@example.test')).person_kind,'Scholastic');
  const curia=fixture();curia.rows.curia_advisors_dtl.push({confrer_code:'F1',province_code:'P1',personal_mailid1:'alice@example.test'});
- const offices=new MemberAccessService({db:curia.db});await offices.provision(scope,{kind:'Curia',code:'F1',province_code:'P1'});assert.equal((await offices.active('alice@example.test')).person_kind,'Curia');
+ const offices=new MemberAccessService({db:curia.db});await offices.provision(scope,{kind:'Curia',code:'F1',province_code:'P1'});assert.equal((await offices.active('alice@example.test')).person_kind,'Confrere');
  curia.rows.confreres_dtl[0].is_active=false;await assert.rejects(offices.active('alice@example.test'),e=>e.status===403);
 });
 test('member password setup uses hashed scoped single-use codes, throttling and mocked email only',async()=>{

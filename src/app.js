@@ -22,8 +22,17 @@ import {CircularQueue} from './services/circularQueue.js';
 import {createCircularWorkerRuntime} from './workers/circularWorkerRuntime.js';
 import {sendCircularEmail,circularMailConfigured} from './middlewares/emailService.js';
 import {downloadCircularBlob} from './middlewares/azureBlob.js';
+import { MemberWelcomeService } from './services/memberWelcomeService.js';
+import { createMemberWelcomeRuntime } from './workers/memberWelcomeRuntime.js';
+import { sendAccountEmail } from './middlewares/emailService.js';
 
 const circularDb=new PrismaClient();
+const memberWelcomeWorker = createMemberWelcomeRuntime({
+  db: circularDb,
+  service: new MemberWelcomeService({db: circularDb, send: sendAccountEmail, download: downloadCircularBlob}),
+  enabled: () => process.env.MEMBER_WELCOME_WORKER_ENABLED === 'true',
+  mailReady: circularMailConfigured, log: logger,
+});
 const circularWorker=createCircularWorkerRuntime({
   db:circularDb,
   queue:new CircularQueue({db:circularDb,send:sendCircularEmail,download:downloadCircularBlob,concurrency:process.env.CIRCULAR_WORKER_CONCURRENCY}),
@@ -115,6 +124,7 @@ process.on('uncaughtException', (err) => {
 
 // Start server
 const server=app.listen(PORT, () => {
+  memberWelcomeWorker.start();
   circularWorker.start().catch(error=>logger.error(`Circular worker initialization failed: ${error.code || error.name}`));
   logger.info(`🚀 Server is running on http://localhost:${PORT}`);
 });
@@ -124,10 +134,10 @@ const stopBackend=()=>{
   if(shutdown)return shutdown;
   logger.info('Stopping API and draining the circular worker...');
   anniversaryJob.stop();
-  shutdown=Promise.all([
+  shutdown=memberWelcomeWorker.stop().then(()=>Promise.all([
     new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve())),
     circularWorker.stop(),
-  ]).then(()=>process.exit(0)).catch(error=>{
+  ])).then(()=>process.exit(0)).catch(error=>{
     logger.error(`Backend shutdown failed: ${error.code || error.name}`);process.exit(1);
   });
   return shutdown;

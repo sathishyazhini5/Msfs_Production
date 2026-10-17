@@ -9,7 +9,7 @@ export const filterFields = {
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 export const parseDirectoryQuery = (kind, query) => {
   if (!Object.hasOwn(filterFields, kind)) throw Object.assign(new Error('Directory not found.'), { status: 404 });
-  const allowed = new Set([...filterFields[kind], 'search', 'page', 'pageSize', ...(kind === 'obituary' ? ['mode', 'death_date', 'from', 'to'] : [])]);
+  const allowed = new Set([...filterFields[kind], 'search', 'page', 'pageSize', ...(kind === 'obituary' ? ['mode', 'death_date', 'from', 'to', 'month', 'year'] : [])]);
   const values = {};
   for (const [key, value] of Object.entries(query)) {
     if (!allowed.has(key) || typeof value !== 'string' || value.length > 150) throw badRequest(`Invalid parameter: ${key}`);
@@ -25,6 +25,9 @@ export const parseDirectoryQuery = (kind, query) => {
   for(const key of ['from','to'])if(values[key]&&(!/^\d{4}-\d{2}-\d{2}$/.test(values[key])||!Number.isFinite(Date.parse(values[key]))||new Date(values[key]).toISOString().slice(0,10)!==values[key]))throw badRequest('Invalid obituary date.');
   if(values.from&&values.to&&values.from>values.to)throw badRequest('From Date must be on or before To Date.');
   if(values.death_date&&(values.from||values.to))throw badRequest('Choose a date range or one Death date.');
+  for (const [key, min, max] of [['month', 1, 12], ['year', 1000, 9998]]) {
+    if (values[key] && (!/^\d+$/.test(values[key]) || Number(values[key]) < min || Number(values[key]) > max)) throw badRequest(`Invalid ${key}.`);
+  }
   return values;
 };
 const scopeSql = (alias, codes) => codes === null ? Prisma.sql`TRUE`
@@ -81,7 +84,17 @@ export const directorySql = (kind, filters, codes) => {
   if (filters.province_code) clauses.push(Prisma.sql`r.province_code = ${filters.province_code}`);
   if (['confrere', 'scholastic'].includes(kind)) clauses.push(Prisma.sql`r.is_active = TRUE`);
   if (kind === 'obituary') {
-    if(filters.from||filters.to){
+    if (filters.month || filters.year) {
+      if (filters.year) {
+        const year = Number(filters.year), month = Number(filters.month || 1);
+        const start = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+05:30`);
+        const endYear = filters.month && month < 12 ? year : year + 1;
+        const endMonth = filters.month && month < 12 ? month + 1 : 1;
+        const end = new Date(`${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00+05:30`);
+        clauses.push(Prisma.sql`r.death_date >= ${start} AND r.death_date < ${end}`);
+      } else clauses.push(Prisma.sql`EXTRACT(MONTH FROM r.death_date) = ${Number(filters.month)}`);
+    }
+    else if(filters.from||filters.to){
       if(filters.from)clauses.push(Prisma.sql`r.death_date >= ${new Date(`${filters.from}T00:00:00+05:30`)}`);
       if(filters.to)clauses.push(Prisma.sql`r.death_date < ${new Date(new Date(`${filters.to}T00:00:00+05:30`).getTime()+86400000)}`);
     }

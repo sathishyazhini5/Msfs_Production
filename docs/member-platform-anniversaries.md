@@ -33,7 +33,7 @@ There is one daily midnight scheduler, with the explicit application timezone. I
 
 Authorized Super, Congregation and Province admins use Users ? Provision E-Status member access. Records are scoped to the administrator. Accounts use the actual record email. Existing accounts and shared addresses belonging to different people are rejected without modifying roles. Multiple matching Curia appointment records require correction/identity clarification rather than a silent link.
 
-Provisioning sends no invitation and creates no usable default password. The member uses the existing Forgot Password flow to request a six-digit code and set a password (12?128 characters). Codes are email-scoped, hashed, expire after ten minutes, limited to five attempts, single-use, and throttled to one request per minute. No existing administrator password is changed by provisioning.
+Member login now uses hashed initial credentials, direct E-Status landing, a private welcome outbox and single-use reset links. See [member-login.md](member-login.md) for the mapping, commands, email configuration and verification. No existing administrator password is changed by provisioning.
 
 Members land in E-Status. Every authenticated API request verifies the active linked identity. Only GET directory/filter/detail endpoints are allowed, within the member's congregation. Exports, mutations, report/circular/admin/setup APIs are blocked. Directory profile print/share controls are hidden. Admin dashboards and route permissions retain existing behavior.
 

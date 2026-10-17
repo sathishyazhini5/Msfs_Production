@@ -69,7 +69,6 @@ export function mapConfrereImportRow(row, codes, createdBy) {
   const text = key => row[key] == null ? null : String(row[key]).trim() || null;
   const data = { ...codes, first_name: text('First Name'), middle_name: text('Middle Name'), last_name: text('Last Name'), personal_mailid1: text('Email')?.toLowerCase() || null, language_code: text('Language Code') || 'en', created_by: createdBy, concurrency_val: 1 };
   if (!data.first_name) throw new Error('First Name: required.');
-  if (data.personal_mailid1 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.personal_mailid1)) throw new Error('personal_mailid1: invalid email; check the Email column alignment.');
   for (const [header, field] of [['Date of Birth', 'birth_date'], ['Baptism Date', 'baptism_date'], ['Confirmation Date', 'confirmation_date'], ['First Profession Date', 'first_profession_date'], ['Final Profession Date', 'final_profession_date'], ['Ordination Date', 'ordination_date']]) data[field] = excelDate(row[header], row.__date1904__, header);
   for (const [isdHeader, numberHeader, isd, number] of phoneFields) {
     const normalized = normalizeTelephone(row[isdHeader], row[numberHeader], number);

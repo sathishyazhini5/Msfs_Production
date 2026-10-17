@@ -1,3 +1,4 @@
+import { withExploreMore } from '../../services/emailFooter.js';
 import {MemberAccessService,MEMBER_ROLE,normalizeEmail} from '../../services/memberAccessService.js';
 import {sendAccountEmail} from '../../middlewares/emailService.js';
 import { PrismaClient } from '@prisma/client';
@@ -187,12 +188,12 @@ const sendOtpEmail = async (userEmail, otp) => {
     </div>
   `;
 
-  await transporter.sendMail({
+  await transporter.sendMail(withExploreMore({
     from: process.env.GMAIL_USER,
     to: userEmail,
     subject: 'Your MSFS WEBSITE OTP Verification',
     html: emailHtml,
-  });
+  }));
 };
 
 
@@ -214,12 +215,12 @@ export const forgotPassword = async (req, res) => {
 });
 
 if (!user) {
-  return res.status(404).json({ message: 'User not found' });
+  return res.status(200).json({message:'If an eligible account exists, password recovery instructions have been sent.'});
 }
 
     if(user.role_name===MEMBER_ROLE || user.role_code==='MEMBER') {
-      await memberPasswords.requestPassword(user.user_id);
-      return res.status(200).json({message:'OTP sent to your email'});
+      try{await memberPasswords.requestResetLink(user.user_id);}catch{/* Keep membership, status and mail outcomes private. */}
+      return res.status(200).json({message:'If an eligible account exists, password recovery instructions have been sent.'});
     }
     const role = await prisma.quickcode_mst.findFirst({
   where: {
@@ -266,10 +267,12 @@ export const resetPassword = async (req, res) => {
     if(req.body.user_id) {
       const memberUser=await prisma.users_mst.findFirst({where:{user_id:{equals:normalizeEmail(req.body.user_id),mode:'insensitive'}}});
       if(memberUser?.role_name===MEMBER_ROLE || memberUser?.role_code==='MEMBER') {
-        await memberPasswords.resetPassword(memberUser.user_id,otp,newPassword);
+        await memberPasswords.resetPassword(memberUser.user_id,req.body.token || otp,newPassword);
         return res.status(200).json({message:'Password reset successful'});
       }
     }
+    if(req.body.token)return res.status(400).json({message:'Reset link is invalid or expired.'});
+    if(typeof otp !== 'string' || !/^\d{6}$/.test(otp))return res.status(400).json({message:'Invalid OTP'});
     // Check if the OTP is valid
     const otpRecord = await prisma.otpstore.findFirst({
       where: { otp },
@@ -321,6 +324,6 @@ export const resetPassword = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error in resetPassword: ${error.message}`);
-    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+    return res.status(error.status || StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
   }
 };

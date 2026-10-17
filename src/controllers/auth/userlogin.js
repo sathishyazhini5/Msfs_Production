@@ -1,3 +1,4 @@
+import { assertCongregationAccess } from '../../services/congregationAccess.js';
 import {MemberAccessService,MEMBER_ROLE} from '../../services/memberAccessService.js';
 import { PrismaClient } from "@prisma/client";
 import { HttpException } from "../../exceptions/HttpException.js";
@@ -63,10 +64,11 @@ if (!isPasswordValid) {
   throw new HttpException(StatusCodes.UNAUTHORIZED, 'Incorrect password');
 }
     // 🔎 Get role name from quickcode
+    await assertCongregationAccess(prisma, user);
     if(user.role_name===MEMBER_ROLE || user.role_code==='MEMBER') {
       const access=await new MemberAccessService({db:prisma}).active(user.user_id);
       const congregation=await prisma.concretion_defination_mst.findUnique({where:{concretion_code:access.concretion_code}});
-      const tokenData={user_id:user.user_id,role_name:MEMBER_ROLE,role_code:'MEMBER',user_type_code:'MEMBER',concretion_code:access.concretion_code,concretion_name:congregation?.concretion_name,province_code:access.province_code};
+      const tokenData={user_id:user.user_id,role_name:MEMBER_ROLE,role_code:'MEMBER',user_type_code:'MEMBER',concretion_code:access.concretion_code,concretion_name:congregation?.concretion_name,province_code:access.province_code,person_kind:access.person_kind,person_code:access.person_code,password_version:access.password_changed_at?new Date(access.password_changed_at).getTime():0,password_change_required:false};
       return res.status(200).json({accessToken:sign(tokenData,JWT_SECRET,{expiresIn:EXPIRY_TIME}),data:{...tokenData,user_role_com_activity_mst:[]},redirect:'/estatus',message:'Login successful'});
     }
     const quickcode = await prisma.quickcode_mst.findFirst({
@@ -154,7 +156,7 @@ if (!isPasswordValid) {
     logger.info("Login Details:", tokenData);
 
     const accessToken = sign(tokenData, JWT_SECRET, { expiresIn: EXPIRY_TIME });
-    const refreshToken = sign({ user_id: user.user_id }, JWT_SECRET, { expiresIn: '7d' });
+    const refreshToken = sign({ user_id: user.user_id, token_use: 'refresh' }, JWT_SECRET, { expiresIn: '7d' });
 
     // Clean response
     const { password: dbPassword, ...responseData } = user;

@@ -1,3 +1,4 @@
+import {provisionCreatedMember} from '../../services/memberCreationHook.js';
 import { officePersonDetails } from '../../utils/officePersonDetails.js';
 import { resolveAuthorizedProvince } from '../../services/confrereCreationService.js';
 import { officeCategories, validateOfficeSelections } from '../../utils/officeTypes.js';
@@ -85,7 +86,6 @@ export async function saveCuriaAdvisorDetails(req, res) {
       { field: "installation_date", name: "Date of Installation" },
       { field: "mandate_code", name: "Mandate Type" },
       { field: "mandate_end_date", name: "Mandate End Date" },
-      { field: "personal_mailid1", name: "Personal Email ID" },
       { field: "personal1_contact_no", name: "Personal Contact Number" },
       { field: "personal1_isd", name: "Personal ISD" },
       { field: "office_mailid1", name: "Office Email ID" },
@@ -185,9 +185,7 @@ if (existingAdvisor) {
     }
 
     // Validate `personal_mailid1` is not null or empty
-    if (!data.personal_mailid1 || data.personal_mailid1.trim() === '') {
-      return res.status(400).json({ error: 'personal_mailid1 is required and must not be empty.' });
-    }
+
 
     // Generate the curia_code
     const curia_code = await generateCuriaCode();
@@ -211,7 +209,7 @@ if (existingAdvisor) {
       personal1_contact_no: data.personal1_contact_no ? BigInt(data.personal1_contact_no) : null,
       watsup1_isd: data.watsup1_isd || '',
       watsup1_no: data.watsup1_no ? BigInt(data.watsup1_no) : null,
-      personal_mailid1: data.personal_mailid1,
+      personal_mailid1: data.personal_mailid1 || '',
       office1_isd: data.office1_isd || '',
       office1_contact_no: data.office1_contact_no ? BigInt(data.office1_contact_no) : null,
       office2_isd: data.office2_isd || '',
@@ -232,6 +230,7 @@ if (existingAdvisor) {
 
     // Convert BigInt values to strings before sending the response
     const jsonResponse = jsonifyBigInt(savedRecord);
+    jsonResponse.member_access=await provisionCreatedMember(prisma,'Curia',savedRecord,res.locals.user?.user_id || 'administrator');
 
     return res.status(201).json(jsonResponse);
   } catch (error) {

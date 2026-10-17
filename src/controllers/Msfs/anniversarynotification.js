@@ -1,3 +1,4 @@
+import { upcomingAnniversaries } from '../../services/upcomingAnniversaries.js';
 import {resolveDataScope,provinceScopeWhere} from '../../utils/dataScope.js';
 import {AnnualWishService} from '../../services/annualWishService.js';
 import {sendAccountEmail} from '../../middlewares/emailService.js';
@@ -86,6 +87,7 @@ import { Prisma } from '@prisma/client';
 export const getTodayAnniversaries = async (req, res, next) => {
   try {
     const { date, type, fullDate } = req.query;
+    const { provinceCodes } = await resolveDataScope(req, prisma, req.query.province_code);
 
     const inputDate = fullDate ? new Date(fullDate) : (date ? new Date(date) : new Date());
 
@@ -129,6 +131,8 @@ export const getTodayAnniversaries = async (req, res, next) => {
             TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`
       }
       )
+      AND is_active = TRUE
+      ${provinceCodes === null ? Prisma.empty : provinceCodes.length ? Prisma.sql`AND province_code IN (${Prisma.join(provinceCodes)})` : Prisma.sql`AND FALSE`}
       ${typeCondition}
     `;
 
@@ -248,3 +252,16 @@ export const sendAnniversaryEmail = async (req, res, next) => {
 
 
 
+
+export const getUpcomingAnniversaries = async (req, res, next) => {
+  try {
+    const { provinceCodes } = await resolveDataScope(req, prisma, req.query.province_code);
+    const where = { is_active: true, ...provinceScopeWhere(provinceCodes) };
+    const select = { first_name:true, middle_name:true, last_name:true, province_code:true, birth_date:true, ordination_date:true };
+    const [confreres, scholastics] = await Promise.all([
+      prisma.confreres_dtl.findMany({where, select:{...select,confrer_code:true}}),
+      prisma.scholastics_dtl.findMany({where, select:{...select,scholastic_code:true}}),
+    ]);
+    res.json(upcomingAnniversaries([...confreres,...scholastics]));
+  } catch (error) { next(error); }
+};
