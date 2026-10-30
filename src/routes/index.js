@@ -1,3 +1,5 @@
+import {adminPasswordRouter} from './adminPassword.js';
+import {memberOtpRouter} from './memberOtp.js';
 import {PrismaClient} from '@prisma/client';
 import {createMemberGuard} from '../middlewares/memberGuard.js';
 import {memberAccessRouter} from './memberAccess.js';
@@ -67,6 +69,8 @@ import {brandingRouter} from './branding.js';
 import {platformRouter} from './platform.js';
 const router = express.Router();
 
+router.use(adminPasswordRouter);
+router.use(memberOtpRouter);
 router.use(authRouter);
 
 // Login and password recovery are public; all application data requires a session.

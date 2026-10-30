@@ -1,3 +1,4 @@
+import {MemberOtpService} from '../services/memberOtpService.js';
 import prisma from '../utils/prisma.js';
 import { assertCongregationAccess } from '../services/congregationAccess.js';
 import { StatusCodes } from 'http-status-codes';
@@ -22,7 +23,16 @@ export const createAuthenticate = (db = prisma) => async (req, res, next) => {
         try {
             const tokenData = jwt.verify(tokenString, JWT_SECRET);
             if (tokenData.token_use === 'refresh' || (tokenData.user_id && !tokenData.role_name && !tokenData.userType)) return res.status(401).json({code:'INVALID_TOKEN',message:'A valid access token is required.'});
-            await assertCongregationAccess(db, tokenData);
+            if (tokenData.member_session) {
+                const session = await new MemberOtpService(db).active(tokenData.member_session);
+                tokenData.role_name = 'estatus member';
+                tokenData.province_code = session.identity.province_code;
+                tokenData.concretion_code = session.identity.concretion_code;
+            } else await assertCongregationAccess(db, tokenData);
+            if (tokenData.user_id) {
+                const account=await db.users_mst.findFirst({where:{user_id:tokenData.user_id}});
+                if ((account?.must_change_password || tokenData.password_change_required) && req.path !== '/auth/change-password') return res.status(403).json({code:'PASSWORD_CHANGE_REQUIRED',message:'Change your temporary password before continuing.'});
+            }
             res.locals.user = tokenData;
             next();
         } catch (err) {

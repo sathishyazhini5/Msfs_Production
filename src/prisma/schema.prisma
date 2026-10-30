@@ -119,6 +119,7 @@ model apostolates_mst {
 }
 
 model users_mst {
+  must_change_password Boolean @default(false)
   user_type_code      String                        @db.VarChar(100)
   prov_concre_code    String                        @db.VarChar(100)
   user_id             String                        @db.VarChar(100) @unique // ✅ Add this
@@ -409,26 +410,26 @@ model centre_dtl {
   address2             String?   @db.Text
   address3             String?   @db.Text
   city_dist            String?   @db.VarChar(100)
-  pin_zipcode          Int
+  pin_zipcode          String @db.VarChar(32)
   country_code         String    @db.VarChar(10)
   state_code           String    @db.VarChar(10)
  diocese_code          String  @db.VarChar(100)
-  phone1_isd           String    @db.VarChar(4)
-  phone1_no            BigInt
+  phone1_isd           String    @db.VarChar(5)
+  phone1_no            String @db.VarChar(40)
   phone2_isd           String?   @db.VarChar(5)
-  phone2_no            BigInt?
+  phone2_no            String? @db.VarChar(40)
   phone3_isd           String?   @db.VarChar(5)
-  phone3_no            BigInt?
+  phone3_no            String? @db.VarChar(40)
   mobile1_isd          String?   @db.VarChar(5)
-  mobile1_no           BigInt?
+  mobile1_no           String? @db.VarChar(40)
   mobile2_isd          String?   @db.VarChar(5)
-  mobile2_no           BigInt?
+  mobile2_no           String? @db.VarChar(40)
   mobile3_isd          String?   @db.VarChar(5)
-  mobile3_no           BigInt?
+  mobile3_no           String? @db.VarChar(40)
   watsup_isd           String?   @db.VarChar(5)
-  watsup_no            BigInt?
+  watsup_no            String? @db.VarChar(40)
   fax_isd              String?   @db.VarChar(5)
-  fax_no               BigInt?
+  fax_no               String? @db.VarChar(40)
   office_mailid1       String    @db.VarChar(255)
   office_mailid2       String?   @db.VarChar(255)
   office_mailid3       String?   @db.VarChar(255)
@@ -900,4 +901,21 @@ model AnnualWish {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   @@unique([concretion_code,person_kind,person_code,province_code,event,year])
   @@unique([person_identity,event,year])
+}
+
+model MemberOtpChallenge {
+  email String @id
+  digest String
+  attempts Int @default(0)
+  identities Json
+  created_at DateTime @default(now())
+  expires_at DateTime
+}
+model MemberOtpSession {
+  id String @id
+  email String
+  identity Json
+  revoke_digest String
+  expires_at DateTime
+  revoked_at DateTime?
 }

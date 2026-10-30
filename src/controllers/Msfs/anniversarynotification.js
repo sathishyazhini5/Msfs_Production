@@ -89,52 +89,20 @@ export const getTodayAnniversaries = async (req, res, next) => {
     const { date, type, fullDate } = req.query;
     const { provinceCodes } = await resolveDataScope(req, prisma, req.query.province_code);
 
-    const inputDate = fullDate ? new Date(fullDate) : (date ? new Date(date) : new Date());
-
-    const matchFullDate = !!fullDate;
-    const formattedFullDate = inputDate.toISOString().split('T')[0]; // 'YYYY-MM-DD'
-    const formattedMonthDay = `${String(inputDate.getMonth() + 1).padStart(2, '0')}-${String(inputDate.getDate()).padStart(2, '0')}`; // 'MM-DD'
-
-    console.log('Query Type:', matchFullDate ? 'FULL DATE' : 'MM-DD');
-    console.log('Looking for:', matchFullDate ? formattedFullDate : formattedMonthDay);
-
-    // Removed type filtering from SQL — will handle it in JS
-    const typeCondition = Prisma.empty;
-
-    const buildQuery = (tableName, codeField) => Prisma.sql`
-      SELECT 
-        ${codeField} AS id,
-        '${tableName}' AS type,
-        first_name,
-        last_name,
-        personal_mailid1 AS emailid,
-        personal1_contact_no AS contact_no,
-        CASE
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Birthday'
-
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`} THEN 'Ordination'
-        END AS anniversary_type,
-        CASE
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay}`} THEN birth_date
-  
-          WHEN ${matchFullDate ? Prisma.sql`TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}` : Prisma.sql`TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`} THEN ordination_date
-        END AS anniversary_date
+    const day=fullDate || date || new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0,10)!==day) return res.status(400).json({error:'Invalid anniversary date.'});
+    const matchFullDate=!!fullDate;
+    const buildQuery=(tableName,codeField)=>Prisma.sql`
+      SELECT ${codeField} AS confrer_code, province_code, first_name, last_name,
+        personal_mailid1 AS emailid, personal1_contact_no AS contact_no,
+        occurrence.type AS anniversary_type, occurrence.event_date AS anniversary_date
       FROM ${Prisma.raw(tableName)}
-      WHERE (
-        ${matchFullDate
-        ? Prisma.sql`
-            TO_CHAR(birth_date, 'YYYY-MM-DD') = ${formattedFullDate} OR
-        
-            TO_CHAR(ordination_date, 'YYYY-MM-DD') = ${formattedFullDate}`
-        : Prisma.sql`
-            TO_CHAR(birth_date, 'MM-DD') = ${formattedMonthDay} OR
-            TO_CHAR(ordination_date, 'MM-DD') = ${formattedMonthDay}`
-      }
-      )
-      AND is_active = TRUE
+      CROSS JOIN LATERAL (VALUES ('Birthday',birth_date),('Ordination',ordination_date)) AS occurrence(type,event_date)
+      WHERE is_active=TRUE AND occurrence.event_date IS NOT NULL
+      AND ${matchFullDate ? Prisma.sql`occurrence.event_date::date = ${day}::date` : Prisma.sql`TO_CHAR(occurrence.event_date,'MM-DD') = ${day.slice(5)}`}
       ${provinceCodes === null ? Prisma.empty : provinceCodes.length ? Prisma.sql`AND province_code IN (${Prisma.join(provinceCodes)})` : Prisma.sql`AND FALSE`}
-      ${typeCondition}
-    `;
+      ${type ? Prisma.sql`AND occurrence.type = ${type}` : Prisma.empty}
+      ORDER BY occurrence.event_date, first_name, last_name`;
 
     const [confreres, scholastics] = await Promise.all([
       prisma.$queryRaw(buildQuery('confreres_dtl', Prisma.sql`confrer_code`)),
@@ -147,7 +115,7 @@ export const getTodayAnniversaries = async (req, res, next) => {
     ].map((record) => ({
       ...record,
       full_name: `${record.first_name || ''} ${record.last_name || ''}`.trim(),
-      anniversary_date: new Date(record.anniversary_date).toLocaleDateString('en-GB'),
+      anniversary_date: new Date(record.anniversary_date).toLocaleDateString('en-GB',{timeZone:'Asia/Kolkata'}),
       contact_no: record.contact_no?.toString() || null,
     }));
 

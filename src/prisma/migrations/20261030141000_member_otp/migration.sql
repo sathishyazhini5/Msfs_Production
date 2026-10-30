@@ -1,0 +1,2 @@
+CREATE TABLE "MemberOtpChallenge" ("email" TEXT PRIMARY KEY, "digest" TEXT NOT NULL, "attempts" INTEGER NOT NULL DEFAULT 0, "identities" JSONB NOT NULL, "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "expires_at" TIMESTAMP(3) NOT NULL);
+CREATE TABLE "MemberOtpSession" ("id" TEXT PRIMARY KEY, "email" TEXT NOT NULL, "identity" JSONB NOT NULL, "revoke_digest" TEXT NOT NULL, "expires_at" TIMESTAMP(3) NOT NULL, "revoked_at" TIMESTAMP(3));

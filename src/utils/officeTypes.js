@@ -17,9 +17,10 @@ export async function validateOfficeSelections(prisma, data) {
   }
 }
 
-export async function officeRecordWhere(prisma, type) {
+export async function officeRecordWhere(prisma, type, provinceCodes = null) {
   const active = await prisma.confreres_dtl.findMany({ where: { is_active: true }, select: { confrer_code: true } });
   return {
+    ...(provinceCodes === null ? {} : {province_code:{in:provinceCodes}}),
     [type === 'GCIC' ? 'gcic_off_code' : 'pcic_off_code']: { not: null, notIn: [''] },
     confrer_code: { in: active.map(row => row.confrer_code) },
   };

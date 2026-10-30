@@ -1,5 +1,4 @@
 import { provinceScopeWhere, resolveDataScope } from './dataScope.js';
-import { officeRecordWhere } from './officeTypes.js';
 
 export async function recordWhere(req, prisma, key, { gcicRead = false } = {}) {
   const { provinceCodes } = await resolveDataScope(req, prisma);
@@ -8,8 +7,6 @@ export async function recordWhere(req, prisma, key, { gcicRead = false } = {}) {
     if (!(field in key) && typeof req.query[field] === 'string' && req.query[field]) identity[field] = req.query[field];
   }
   const scope = provinceScopeWhere(provinceCodes);
-  const access = gcicRead && req.method === 'GET'
-    ? { OR: [scope, await officeRecordWhere(prisma, 'GCIC'), await officeRecordWhere(prisma, 'PCIC')] }
-    : scope;
+  const access = scope;
   return { AND: [identity, access] };
 }

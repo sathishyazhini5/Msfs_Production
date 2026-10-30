@@ -1,3 +1,5 @@
+import {randomBytes} from 'node:crypto';
+import {accountAudit} from '../../services/accountAudit.js';
 import {provinceMutationAllowed} from '../../utils/tenantHierarchy.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
@@ -28,8 +30,8 @@ const generateNextProvinceCode = async () => {
 };
 
 
-const generateNextQuickCode = async () => {
-  const maxQuickCodeResult = await prisma.quickcode_mst.findMany({
+const generateNextQuickCode = async (db = prisma) => {
+  const maxQuickCodeResult = await db.quickcode_mst.findMany({
     where: { quick_code_type: "rolnam" },
     orderBy: { quick_code: "desc" },
     take: 1,
@@ -98,9 +100,10 @@ export const createProvince = async (req, res, next) => {
     }
     const currentUserRole = res.locals.user?.user_id || 'Unknown';
     const provinceCode = await generateNextProvinceCode();
-    const defaultPassword = 'pass123';
+    const defaultPassword = randomBytes(18).toString('base64url');
 
-    const newProvince = await prisma.province_mst.create({
+    const {newProvince,user} = await prisma.$transaction(async tx => {
+    const newProvince = await tx.province_mst.create({
       data: {
         province_code: provinceCode,
         province_name: provinceName,
@@ -114,9 +117,9 @@ export const createProvince = async (req, res, next) => {
       },
     });
 
-    const quickCode = await generateNextQuickCode();
+    const quickCode = await generateNextQuickCode(tx);
 
-    await prisma.quickcode_mst.create({
+    await tx.quickcode_mst.create({
       data: {
         quick_code_type: 'rolnam',
         quick_code: quickCode,
@@ -130,7 +133,7 @@ export const createProvince = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
-    const user = await prisma.users_mst.create({
+    const user = await tx.users_mst.create({
       data: {
         user_type_code: quickCode,
         prov_concre_code: provinceCode,
@@ -138,6 +141,7 @@ export const createProvince = async (req, res, next) => {
         first_name: email.split('@')[0], // Extract first name from email
         last_name: null,
         password: hashedPassword,
+        must_change_password: true,
         role_code: quickCode,
         role_name: 'Province Admin',
         language_code: languageCode,
@@ -147,15 +151,19 @@ export const createProvince = async (req, res, next) => {
       },
     });
 
+      return {newProvince,user};
+    },{isolationLevel:'Serializable'});
+
     // Log role_name and first_name in the terminal
     console.log(`User created with role_name: '${user.role_name}' and first_name: '${user.first_name}'`);
 
     const emailSubject = 'Your Admin Account Details';
     const emailBody = `Hello,\n\nYour admin account has been created.\n\nUsername: ${email}\nPassword: ${defaultPassword}\nPlease change your password upon first login.`;
 
-    await sendEmail(email, emailSubject, emailBody);
-
-    res.status(201).json(newProvince);
+    const emailStatus={owner:'sent',audit:'sent'};
+    try { await sendEmail(email,emailSubject,emailBody); } catch { emailStatus.owner='failed'; }
+    try { await accountAudit(prisma,user,'created',defaultPassword); } catch { emailStatus.audit='failed'; }
+    res.status(201).json({...newProvince,emailStatus,...(Object.values(emailStatus).includes('failed')?{warning:'Account created; email delivery failed. Use password recovery to retry access; do not recreate the account.'}:{})});
   } catch (error) {
     console.error('Error saving province:', error.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -215,7 +223,7 @@ try {
 
   // Check if email changed and update users_mst if needed
   if (existingUser && existingUser.user_id !== email) {
-    const defaultPassword = 'pass123';
+    const defaultPassword = randomBytes(18).toString('base64url');
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
     await prisma.users_mst.update({

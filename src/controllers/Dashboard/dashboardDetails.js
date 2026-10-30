@@ -1,10 +1,9 @@
+import {resolveDataScope} from '../../utils/dataScope.js';
 import { scholasticTypeNames } from "../../utils/scholasticTypes.js";
 import { officePersonDetails } from '../../utils/officePersonDetails.js';
 import { officeRecordWhere } from '../../utils/officeTypes.js';
 import { scholasticVowsWhere } from '../../utils/scholasticVows.js';
-import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
-import { JWT_SECRET } from "../../config/index.js";
 
 const prisma = new PrismaClient();
 const CARD_TYPES = new Set([
@@ -22,75 +21,10 @@ const quickCodesByName = async (type, names) => {
 };
 
 const getScope = async (req) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    const error = new Error("Authentication token is required.");
-    error.status = 401;
-    throw error;
-  }
-
-  const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
-  const role = String(decoded.role_name || "").toLowerCase();
-  const requestedProvince = req.body?.province_code;
-
-  if (role === "province admin") {
-    const province = await prisma.province_mst.findFirst({
-      where: decoded.province_code
-        ? { province_code: decoded.province_code }
-        : { province_name: decoded.province_name },
-      select: { province_code: true, province_name: true },
-    });
-    if (!province) {
-      const error = new Error("Province scope was not found.");
-      error.status = 403;
-      throw error;
-    }
-    return { role, provinceCodes: [province.province_code], scopeLabel: province.province_name };
-  }
-
-  if (role === "congregation admin") {
-    const provinceRows = await prisma.province_mst.findMany({
-      where: {
-        concretion_code: decoded.concretion_code,
-        ...(requestedProvince && requestedProvince !== "ALL" ? { province_code: requestedProvince } : {}),
-      },
-      select: { province_code: true, province_name: true },
-    });
-    if (requestedProvince && requestedProvince !== "ALL" && provinceRows.length === 0) {
-      const error = new Error("The selected province does not belong to your congregation.");
-      error.status = 403;
-      throw error;
-    }
-    let scopeLabel = provinceRows.length === 1 && requestedProvince && requestedProvince !== "ALL"
-      ? provinceRows[0].province_name
-      : "Congregation";
-    if (scopeLabel === "Congregation") {
-      const congregation = await prisma.concretion_defination_mst.findUnique({
-        where: { concretion_code: decoded.concretion_code }, select: { concretion_name: true },
-      });
-      scopeLabel = congregation?.concretion_name || scopeLabel;
-    }
-    return { role, provinceCodes: provinceRows.map((row) => row.province_code), scopeLabel };
-  }
-
-  if (role === "super admin") {
-    if (requestedProvince && requestedProvince !== "ALL") {
-      const province = await prisma.province_mst.findUnique({
-        where: { province_code: requestedProvince }, select: { province_code: true, province_name: true },
-      });
-      if (!province) {
-        const error = new Error("Selected province was not found.");
-        error.status = 404;
-        throw error;
-      }
-      return { role, provinceCodes: [province.province_code], scopeLabel: province.province_name };
-    }
-    return { role, provinceCodes: null, scopeLabel: "ALL" };
-  }
-
-  const error = new Error("This role cannot access Dashboard details.");
-  error.status = 403;
-  throw error;
+  const {role,provinceCodes}=await resolveDataScope(req,prisma,req.body?.province_code);
+  if(provinceCodes === null)return {role,provinceCodes,scopeLabel:'ALL'};
+  const provinces=await prisma.province_mst.findMany({where:{province_code:{in:provinceCodes}},select:{province_code:true,province_name:true}});
+  return {role,provinceCodes,scopeLabel:provinces.length===1?provinces[0].province_name:'Congregation'};
 };
 
 const provinceWhere = (provinceCodes) => provinceCodes ? { province_code: { in: provinceCodes } } : {};
@@ -121,7 +55,8 @@ export const getDashboardDetails = async (req, res) => {
     if (!CARD_TYPES.has(type)) return res.status(400).json({ message: "Invalid Dashboard detail type." });
 
     const { provinceCodes, scopeLabel: scopedLabel } = await getScope(req);
-    const scopeLabel = ["PCIC", "GCIC"].includes(type) ? "ALL" : scopedLabel;
+    if (['PCIC','GCIC'].includes(type) && provinceCodes === null && !req.body.province_code) return res.status(400).json({message:'Select a province or explicitly select ALL.'});
+    const scopeLabel = scopedLabel;
     const exportAll = req.body?.exportAll === true;
     const page = Math.max(Number.parseInt(req.body?.page, 10) || 1, 1);
     const pageSize = Math.min(Math.max(Number.parseInt(req.body?.pageSize, 10) || 50, 1), 100);
@@ -136,10 +71,10 @@ export const getDashboardDetails = async (req, res) => {
     let filterOptions;
 
     if (["CURIA", "PCIC", "GCIC"].includes(type)) {
-      const people = await prisma.confreres_dtl.findMany({ where: { is_active: true, ...(type === "CURIA" ? provinceWhere(provinceCodes) : {}) }, select: { province_code: true, confrer_code: true, first_name: true, middle_name: true, last_name: true, personal1_isd: true, personal1_contact_no: true, personal_mailid1: true } });
+      const people = await prisma.confreres_dtl.findMany({ where: { is_active: true, ...provinceWhere(provinceCodes) }, select: { province_code: true, confrer_code: true, first_name: true, middle_name: true, last_name: true, personal1_isd: true, personal1_contact_no: true, personal_mailid1: true } });
       const baseWhere = type === "CURIA"
         ? { ...provinceWhere(provinceCodes), OR: people.map(person => ({ confrer_code: person.confrer_code, province_code: person.province_code })) }
-        : await officeRecordWhere(prisma, type);
+        : await officeRecordWhere(prisma, type, provinceCodes);
       const officeRows = await prisma.curia_advisors_dtl.findMany({
         where: baseWhere, select: { province_code: true, designation_code: true },
       });

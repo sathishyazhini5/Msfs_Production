@@ -49,7 +49,7 @@ test('each real member type provisions once, signs in directly, resets via priva
     const initial=await signIn('pass123');assert.equal(initial.error,undefined);assert.equal(initial.res.body.redirect,'/estatus');assert.equal(initial.res.body.data.person_kind,kind);
     let permitted=false;const req={method:'GET',path:'/estatus/confrere/filters'};
     await createMemberGuard(db)(req,response(initial.res.body.data),()=>{permitted=true;});assert.equal(permitted,true);assert.deepEqual(req.memberProvinceCodes,['P1']);
-    for (const [method,path] of [['GET','/platform/dashboard'],['GET','/getusers'],['GET','/estatus/confrere/export'],['POST','/saveConfrere']]) {
+    for (const [method,path] of [['GET','/platform/dashboard'],['GET','/getusers'],['POST','/saveConfrere']]) {
       const denied=response(initial.res.body.data);await createMemberGuard(db)({method,path},denied,()=>assert.fail());assert.equal(denied.statusCode,403);
     }
     await service.requestResetLink(email);

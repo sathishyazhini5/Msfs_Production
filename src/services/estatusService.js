@@ -84,7 +84,8 @@ export const directorySql = (kind, filters, codes) => {
   if (filters.province_code) clauses.push(Prisma.sql`r.province_code = ${filters.province_code}`);
   if (['confrere', 'scholastic'].includes(kind)) clauses.push(Prisma.sql`r.is_active = TRUE`);
   if (kind === 'obituary') {
-    if (filters.month || filters.year) {
+    if (filters.death_date) clauses.push(Prisma.sql`(r.death_date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date = ${filters.death_date}::date`);
+    else if (filters.month || filters.year) {
       if (filters.year) {
         const year = Number(filters.year), month = Number(filters.month || 1);
         const start = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+05:30`);
@@ -92,14 +93,13 @@ export const directorySql = (kind, filters, codes) => {
         const endMonth = filters.month && month < 12 ? month + 1 : 1;
         const end = new Date(`${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00+05:30`);
         clauses.push(Prisma.sql`r.death_date >= ${start} AND r.death_date < ${end}`);
-      } else clauses.push(Prisma.sql`EXTRACT(MONTH FROM r.death_date) = ${Number(filters.month)}`);
+      } else clauses.push(Prisma.sql`EXTRACT(MONTH FROM (r.death_date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')) = ${Number(filters.month)}`);
     }
     else if(filters.from||filters.to){
       if(filters.from)clauses.push(Prisma.sql`r.death_date >= ${new Date(`${filters.from}T00:00:00+05:30`)}`);
       if(filters.to)clauses.push(Prisma.sql`r.death_date < ${new Date(new Date(`${filters.to}T00:00:00+05:30`).getTime()+86400000)}`);
     }
-    else if (filters.death_date) clauses.push(Prisma.sql`r.death_date::date = ${filters.death_date}::date`);
-    else if (filters.mode !== 'all') clauses.push(Prisma.sql`r.death_date::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`);
+    else if (filters.mode !== 'all') clauses.push(Prisma.sql`(r.death_date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`);
   }
   for (const field of filterFields[kind].filter((f) => !['province_code', 'division', 'state', 'designation_code', 'scholastic_type_code', 'formation_type_code', 'year_formation_code'].includes(f))) {
     if (filters[field] && !(kind === 'confrere' && field === 'apostolate_code')) clauses.push(Prisma.sql`${Prisma.raw(`r.${field}`)} = ${filters[field]}`);

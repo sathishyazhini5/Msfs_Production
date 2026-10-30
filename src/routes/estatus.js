@@ -2,7 +2,7 @@ import { getScholasticDetails } from '../controllers/Msfs/scholastics.js';
 import { memberRecordProjection } from '../utils/memberRecordPolicy.js';
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
-import { sendScopeError } from '../utils/dataScope.js';
+import { resolveDataScope, sendScopeError } from '../utils/dataScope.js';
 import { requireEstatusAccess, setEstatusRecordWhere } from '../utils/estatusAccess.js';
 import { getConfrere } from '../controllers/Msfs/confreres.js';
 import { getcenterdetails } from '../controllers/Msfs/centre.js';
@@ -29,7 +29,8 @@ estatusRouter.get('/estatus/:kind/record/:code', async (req, res, next) => {
       if (typeof req.query[field] !== 'string' || !req.query[field].trim() || req.query[field].length > 50) return res.status(400).json({ error: `Complete record identifier required: ${field}.` });
       identity[field] = req.query[field];
     }
-    if(req.memberProvinceCodes && !req.memberProvinceCodes.includes(identity.province_code))return res.status(404).json({error:'Record not found.'});
+    const recordProvinces = req.memberProvinceCodes ?? (await resolveDataScope(req,prisma,identity.province_code)).provinceCodes;
+    if(recordProvinces && !recordProvinces.includes(identity.province_code))return res.status(404).json({error:'Record not found.'});
     const record = await prisma[model].findFirst({ where: identity, select: { [key]: true } });
     if (!record) return res.status(404).json({ error: 'Record not found.' });
     setEstatusRecordWhere(req, identity);
@@ -49,7 +50,7 @@ estatusRouter.get('/estatus/:kind/:action?', async (req, res) => {
     requireEstatusAccess(req);
     if (action && !['filters','export'].includes(action)) return res.status(404).json({ error: 'Endpoint not found.' });
     const filters = parseDirectoryQuery(kind, req.query);
-    const provinceCodes = req.memberProvinceCodes ?? null;
+    const provinceCodes = req.memberProvinceCodes ?? (await resolveDataScope(req,prisma,filters.province_code)).provinceCodes;
     if(provinceCodes && filters.province_code && !provinceCodes.includes(filters.province_code))return res.status(403).json({error:'Province is outside your congregation.'});
     if (action === 'filters') {
       const options = await loadDirectoryOptions(prisma, kind, provinceCodes, filters);

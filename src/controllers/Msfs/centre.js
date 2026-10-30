@@ -1,3 +1,4 @@
+import {readCentreSheet} from '../../utils/centreExcelReader.js';
 import { saveCentreExcelRow } from '../../utils/centreExcelUpload.js';
 import { recordWhere } from '../../utils/recordAccess.js';
 import { estatusRecordWhere } from '../../utils/estatusAccess.js';
@@ -9,289 +10,19 @@ import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "../../config/index.js";
 import { provinceScopeWhere, resolveDataScope, sendScopeError } from '../../utils/dataScope.js';
 
-export const saveCentreDetails = async (req, res) => {
-  const {
-    province_code,
-    division_type_code,
-    division_code,
-    apostolate_code,
-    centre_type_code,
-    community_house_code,
-    centre_name,
-    centre_place,
-    address1,
-    address2,
-    address3,
-    city_dist,
-    pin_zipcode,
-    country_code,
-    state_code,
-    diocese_code,
-    phone1_isd,
-    phone1_no,
-    phone2_isd,
-    phone2_no,
-    phone3_isd,
-    phone3_no,
-    watsup_isd,
-    watsup_no,
-    office_mailid1,
-    office_mailid2,
-    office_mailid3,
-    website1,
-    website2,
-    website3,
-    language_code = 'en', // Default value
-    concurrency_val = 1,  // Default value
-    created_by, // Default value
-
-  } = req.body;
-
-  const created_date = new Date(); // Automatically generate the current date
-
-  console.log('Received data:', req.body);
-  const pinZipcodeInt = parseInt(pin_zipcode, 10);
-
-  // Handle cases where conversion fails
-  if (isNaN(pinZipcodeInt)) {
-    return res.status(400).json({ error: 'Invalid pin_zipcode format. It must be a number.' });
-  }
-
-  try {
-    // Extract the authorization token from headers and validate it
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Access token is missing or invalid" });
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      if (error.name === "TokenExpiredError") {
-        return res.status(401).json({ error: "Token has expired" });
-      }
-      if (error.name === "JsonWebTokenError") {
-        return res.status(401).json({ error: "Invalid token" });
-      }
-      return res.status(500).json({ error: "Failed to verify token" });
-    }
-
-    // Get the logged-in user's province_code from decoded JWT
-    const { province_code: loggedProvinceCode } = decoded;
-    const createdBy = decoded.role_name || decoded.username || "Unknown";
-    const finalProvinceCode = province_code || loggedProvinceCode;
-    if (!finalProvinceCode) {
-      return res.status(400).json({ error: "Province code is required and not available" });
-    }
-
-    // Validate required fields
-    const missingFields = [];
-
-    if (!division_type_code) missingFields.push('division_type_code');
-    if (!division_code) missingFields.push('division_code');
-    if (!apostolate_code) missingFields.push('apostolate_code');
-    if (!centre_type_code) missingFields.push('centre_type_code');
-    if(! diocese_code) missingFields.push('diocese_code');
-    if (!community_house_code) missingFields.push('community_house_code');
-    if (!centre_name) missingFields.push('centre_name');
-    if (!centre_place) missingFields.push('centre_place');
-    if (!address1) missingFields.push("Address 1");
-    if (!address2) missingFields.push("Place");
-    if (!pin_zipcode) missingFields.push("Pin/Zip Code");
-    if (!city_dist) missingFields.push("City/District");
-    if (!country_code) missingFields.push("Country Code");
-    if (!state_code) missingFields.push("State Code");
-    if(!phone1_no)missingFields.push("Phone Number1");
-    if(!phone1_isd)missingFields.push("Phone isd 1")
-    if(!office_mailid1)missingFields.push("Office Mailid1")
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-        fields: missingFields, // List of missing fields for further use
-      });
-    }
-
-
-    // Validate and fetch the diocese_code based on the provided diocese_code
-    const diocese = await prisma.quickcode_mst.findFirst({
-      where: {
-        quick_code_type: 'diocse',
-        quick_code: diocese_code
-      }
-    });
-
-    if (!diocese) {
-      console.error(`Diocese code ${diocese_code} not found`);
-      return res.status(404).json({ error: `Diocese code ${diocese_code} not found` });
-    }
-    const dioceseName = diocese.quickcode_name;
-
-    console.log(`Diocese name: ${dioceseName}`);
-
-    // Validate country_code
-    const country = await prisma.country_mst.findFirst({
-      where: { country_code }
-    });
-
-    if (!country) {
-      console.error(`Country code ${country_code} not found`);
-      return res.status(404).json({ error: `Country code ${country_code} not found` });
-    }
-
-    // Validate state_code
-    const state = await prisma.state_mst.findFirst({
-      where: { state_code }
-    });
-
-    if (!state) {
-      console.error(`State code ${state_code} not found`);
-      return res.status(404).json({ error: `State code ${state_code} not found` });
-    }
-
-    // Check if province_code is present in province_mst
-    const province = await prisma.province_mst.findFirst({
-      where: { province_code }
-    });
-
-    if (!province) {
-      console.error(`Province code ${province_code} not found`);
-      return res.status(404).json({ error: `Province code ${province_code} not found` });
-    }
-
-    // Check if division_type_code is present in quickcode_mst
-    const divisionType = await prisma.quickcode_mst.findUnique({
-      where: {
-        quick_code_type_quick_code: {
-          quick_code_type: 'divtyp',
-          quick_code: division_type_code
-        }
-      }
-    });
-
-    if (!divisionType) {
-      console.error(`Division type code ${division_type_code} not found`);
-      return res.status(404).json({ error: `Division type code ${division_type_code} not found` });
-    }
-
-    // Check if division_code is present in division_setup_mst
-    const division = await prisma.division_setup_mst.findFirst({
-      where: {
-        division_code,
-        province_code,
-        division_type_code,
-      },
-    });
-
-    if (!division) {
-      console.error(`Division code ${division_code} not found for the provided province and division type`);
-      return res.status(404).json({ error: `Division code ${division_code} not found for the provided province and division type` });
-    }
-
-    // Check if the apostolate_code and centre_type_code match in apostolate_mst
-    const apostolate = await prisma.apostolates_mst.findFirst({
-      where: {
-        apostolate_code,
-        centre_type_code
-      }
-    });
-
-    if (!apostolate) {
-      console.error(`Apostolate code ${apostolate_code} with Centre type code ${centre_type_code} not found`);
-      return res.status(404).json({ error: `Apostolate code ${apostolate_code} with Centre type code ${centre_type_code} not found` });
-    }
-
-    // Check if community_house_code is present in community_house_dtl
-    const communityHouse = await prisma.community_house_dtl.findFirst({
-      where: { community_house_code }
-    });
-
-    if (!communityHouse) {
-      console.error(`Community house code ${community_house_code} not found`);
-      return res.status(404).json({ error: `Community house code ${community_house_code} not found` });
-    }
-
-    // Fetch the highest existing centre_code
-    const lastCentre = await prisma.centre_dtl.findFirst({
-      orderBy: {
-        centre_code: 'desc'
-      }
-    });
-
-    // Generate the new centre_code
-    let newCentreCode = 'CEN001';
-    if (lastCentre) {
-      const lastCodeNumber = parseInt(lastCentre.centre_code.replace('CEN', ''), 10);
-      newCentreCode = `CEN${(lastCodeNumber + 1).toString().padStart(3, '0')}`;
-    }
-
-
-    // Save to centre_dtl
-    const result = await prisma.centre_dtl.create({
-      data: {
-        centre_code: newCentreCode,
-        province_code: finalProvinceCode,
-        division_type_code,
-        diocese_code,
-        division_code,
-        apostolate_code,
-        centre_type_code,
-        community_house_code,
-        centre_name,
-        centre_place,
-        address1,
-        address2:address2 ? address2.trim().toUpperCase() : null,
-        address3,
-        city_dist,
-        pin_zipcode: pinZipcodeInt,
-        country_code,
-        state_code,
-        diocese_code,
-        phone1_isd,
-        phone1_no,
-        phone2_isd,
-        phone2_no,
-        phone3_isd,
-        phone3_no,
-        watsup_isd,
-        watsup_no,
-        office_mailid1,
-        office_mailid2,
-        office_mailid3,
-        website1,
-        website2,
-        website3,
-        language_code,
-        concurrency_val,
-        created_by: res.locals.user?.user_id || createdBy,
-        created_date,
-      }
-    });
-
-    // Convert BigInt fields to string before returning
-    const resultToReturn = {
-      ...result,
-      phone1_no: result.phone1_no.toString(),
-      phone2_no: result.phone2_no ? result.phone2_no.toString() : null,
-      phone3_no: result.phone3_no ? result.phone3_no.toString() : null,
-      mobile1_no: result.mobile1_no ? result.mobile1_no.toString() : null,
-      mobile2_no: result.mobile2_no ? result.mobile2_no.toString() : null,
-      mobile3_no: result.mobile3_no ? result.mobile3_no.toString() : null,
-      watsup_no: result.watsup_no ? result.watsup_no.toString() : null,
-      fax_no: result.fax_no ? result.fax_no.toString() : null
-    };
-
-    console.log('Data saved successfully:', resultToReturn);
-    return res.status(201).json({ message: 'Data saved successfully', data: resultToReturn });
-  }
-  catch (error) {
-    console.error('Error saving data:', error); // Logs the full error object
-    return res.status(500).json({ error: 'Internal Server Error', details: error.message });
-  }
-
+const centreFormRow = body => {
+    const map = {'Province':'province_code','Division Type':'division_type_code','Name of the Division':'division_code','Apostolate/Department':'apostolate_code','Centre Type':'centre_type_code','Community House':'community_house_code','Name of the Diocese':'diocese_code','Name of the Centre':'centre_name','Place of the Centre':'centre_place','Address 1':'address1','Address 2':'address2','Address 3':'address3','Country':'country_code','State':'state_code','City/District':'city_dist','Pin / Zipcode':'pin_zipcode','Personal1 ISD':'phone1_isd','Personal1 Contact':'phone1_no','Personal2 ISD':'phone2_isd','Personal2 Contact':'phone2_no','Personal3 ISD':'phone3_isd','Personal3 Contact':'phone3_no','WhatsApp ISD':'watsup_isd','WhatsApp no':'watsup_no','Office MailId 1':'office_mailid1','Office MailId 2':'office_mailid2','Office MailId 3':'office_mailid3','Official Website 1':'website1','Official Website 2':'website2','Official Website 3':'website3','Country ISD':'country_isd','State ISD':'state_isd','Mobile1 ISD':'mobile1_isd','Mobile1 Contact':'mobile1_no','Mobile2 ISD':'mobile2_isd','Mobile2 Contact':'mobile2_no','Mobile3 ISD':'mobile3_isd','Mobile3 Contact':'mobile3_no','Fax ISD':'fax_isd','Fax Contact':'fax_no','Concurrency Value':'concurrency_val'};
+    return Object.fromEntries(Object.entries(map).map(([header,key])=>[header,body[key]]));
 };
 
+export const saveCentreDetails = async (req,res) => {
+  try {
+    const scope = await resolveDataScope(req,prisma,req.body.province_code);
+    const row=centreFormRow(req.body);
+    const result=await saveCentreExcelRow(prisma,row,{provinceCodes:scope.provinceCodes,provinceCode:scope.provinceCodes?.[0],createdBy:scope.user.user_id || scope.role});
+    res.status(201).json({message:'Centre saved successfully',data:result});
+  } catch(error) { return sendScopeError(res,Object.assign(error,{status:error.status || 400}),'Unable to save centre.'); }
+};
 
 export const getCentreDetails = async (req, res) => {
   try {
@@ -679,243 +410,19 @@ export const getCentreDetailsByCode = async (req, res) => {
 
 
 
-export const updateCentreDetails = async (req, res) => {
-  const {
-    province_code,
-    division_type_code,
-    division_code,
-    apostolate_code,
-    centre_type_code,
-    community_house_code,
-    centre_name,
-    centre_place,
-    address1,
-    address2,
-    address3,
-    city_dist,
-    pin_zipcode,
-    country_code,
-    state_code,
-    diocese_code,
-    phone1_isd,
-    phone1_no,
-    phone2_isd,
-    phone2_no,
-    phone3_isd,
-    phone3_no,
-    watsup_isd,
-    watsup_no,
-    office_mailid1,
-    office_mailid2,
-    office_mailid3,
-    website1,
-    website2,
-    website3,
-    language_code = 'en',  // Default value
-    concurrency_val = 1,   // Default value
-    updated_by   // Default value
-  } = req.body;
-
-  const { centre_code } = req.params;  // Extract centre_code from URL params
-  const updated_date = new Date();     // Automatically generate the current date
-
+export const updateCentreDetails = async (req,res) => {
   try {
-
-    const authHeader = req.headers.authorization;
-
-    // Validate the token
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Access token is missing or invalid" });
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded;
-
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      if (error.name === "TokenExpiredError") {
-        return res.status(401).json({ error: "Token has expired" });
-      }
-      if (error.name === "JsonWebTokenError") {
-        return res.status(401).json({ error: "Invalid token" });
-      }
-      return res.status(500).json({ error: "Failed to verify token" });
-    }
-
-    // Extract province_name and created_by from the token
-    const provinceName = decoded.province_name;
-    const UpdatedBy = decoded.role_name || decoded.username || "Unknown";
-
-    // Fetch province_code based on province_name
-    const province = await prisma.province_mst.findFirst({
-      where: { province_name: provinceName },
-      select: { province_code: true },
-    });
-
-    if (!province) {
-      return res.status(404).json({ error: "Province not found for the given name" });
-    }
-
-    const province_code = province.province_code;
-    // Fetch all records from centre_dtl
-
-
-    console.log('Updating data for centre_code:', centre_code);
-
-    const missingFields = [];
-
-    if (!division_type_code) missingFields.push('division_type_code');
-    if (!division_code) missingFields.push('division_code');
-    if (!apostolate_code) missingFields.push('apostolate_code');
-    if (!centre_type_code) missingFields.push('centre_type_code');
-    if(! diocese_code) missingFields.push('diocese_code');
-    if (!community_house_code) missingFields.push('community_house_code');
-    if (!centre_name) missingFields.push('centre_name');
-    if (!centre_place) missingFields.push('centre_place');
-    if (!address1) missingFields.push("Address 1");
-    if (!address2) missingFields.push("Place");
-    if (!pin_zipcode) missingFields.push("Pin/Zip Code");
-    if (!city_dist) missingFields.push("City/District");
-    if (!country_code) missingFields.push("Country Code");
-    if (!state_code) missingFields.push("State Code");
-    if(!phone1_no)missingFields.push("Phone Number1");
-    if(!phone1_isd)missingFields.push("Phone isd 1");
-    if(!office_mailid1)missingFields.push("Office Mailid1")
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-        fields: missingFields, // List of missing fields for further use
-      });
-    }
-
-
-    const centres = await prisma.centre_dtl.findFirst({
-      where: { centre_code, province_code }
-    });
-
-    if (!centres) {
-      console.error(`Centre with code ${centre_code} not found`);
-      return res.status(404).json({ error: `Centre with code ${centre_code} not found` });
-    }
-
-
-
-    // Check if division_type_code exists in quickcode_mst
-    const divisionType = await prisma.quickcode_mst.findUnique({
-      where: {
-        quick_code_type_quick_code: {
-          quick_code_type: 'divtyp',
-          quick_code: division_type_code
-        }
-      }
-    });
-    if (!divisionType) {
-      return res.status(404).json({ error: `Division type code ${division_type_code} not found` });
-    }
-
-    // Check if division_code exists in division_setup_mst
-    const division = await prisma.division_setup_mst.findFirst({
-      where: { division_code }
-    });
-    if (!division) {
-      return res.status(404).json({ error: `Division code ${division_code} not found` });
-    }
-
-    // Check if apostolate_code exists in apostolate_mst
-    const apostolate = await prisma.apostolates_mst.findFirst({
-      where: { apostolate_code }
-    });
-    if (!apostolate) {
-      return res.status(404).json({ error: `Apostolate code ${apostolate_code} not found` });
-    }
-
-    // Check if centre_type_code exists in quickcode_mst
-    const centreType = await prisma.quickcode_mst.findUnique({
-      where: {
-        quick_code_type_quick_code: {
-          quick_code_type: 'ctrtyp',
-          quick_code: centre_type_code
-        }
-      }
-    });
-    if (!centreType) {
-      return res.status(404).json({ error: `Centre type code ${centre_type_code} not found` });
-    }
-
-    // Check if community_house_code exists in community_house_dtl
-    const communityHouse = await prisma.community_house_dtl.findFirst({
-      where: { community_house_code }
-    });
-    if (!communityHouse) {
-      return res.status(404).json({ error: `Community house code ${community_house_code} not found` });
-    }
-
-    // Update the centre_dtl entry
-    const updatedCentre = await prisma.centre_dtl.update({
-      where: {
-        centre_code_province_code_division_type_code_division_code: {
-          centre_code,
-          province_code: centres.province_code,
-          division_type_code: centres.division_type_code,
-          division_code: centres.division_code
-        }
-      },
-      data: {
-        province_code,
-        division_type_code,
-        division_code,
-        apostolate_code,
-        centre_type_code,
-        community_house_code,
-        centre_name,
-        centre_place,
-        address1,
-        address2:address2 ? address2.trim().toUpperCase() : null,
-        address3,
-        city_dist,
-        pin_zipcode,
-        country_code,
-        state_code,
-        diocese_code,
-        phone1_isd,
-        phone1_no,
-        phone2_isd,
-        phone2_no,
-        phone3_isd,
-        phone3_no,
-        watsup_isd,
-        watsup_no,
-        office_mailid1,
-        office_mailid2,
-        office_mailid3,
-        website1,
-        website2,
-        website3,
-        language_code,
-        concurrency_val,
-        updated_by: res.locals.user?.user_id || UpdatedBy,
-        updated_date
-      }
-    });
-
-    // Convert BigInt fields to string before returning
-    const updatedCentreToReturn = {
-      ...updatedCentre,
-      phone1_no: updatedCentre.phone1_no.toString(),
-      phone2_no: updatedCentre.phone2_no ? updatedCentre.phone2_no.toString() : null,
-      phone3_no: updatedCentre.phone3_no ? updatedCentre.phone3_no.toString() : null,
-      watsup_no: updatedCentre.watsup_no ? updatedCentre.watsup_no.toString() : null,
-    };
-
-    console.log('Data updated successfully:', updatedCentreToReturn);
-    return res.status(200).json({ message: 'Data updated successfully', data: updatedCentreToReturn });
-  } catch (error) {
-    console.error('Error updating data:', error.message);
-    return res.status(500).json({ error: 'Internal Server Error' });
-  }
+    const where=await recordWhere(req,prisma,{centre_code:req.params.centre_code});
+    const existing=await prisma.centre_dtl.findFirst({where});
+    if(!existing)return res.status(404).json({error:'Centre not found in your authorized scope.'});
+    const input={...existing,...req.body};
+    if(input.province_code!==existing.province_code) return res.status(400).json({error:'A Centre cannot be moved to another province through an edit.'});
+    const scope=await resolveDataScope(req,prisma,input.province_code);
+    const centreIdentity=Object.fromEntries(['centre_code','province_code','division_type_code','division_code'].map(key=>[key,existing[key]]));
+    const result=await saveCentreExcelRow(prisma,centreFormRow(input),{provinceCodes:scope.provinceCodes,provinceCode:existing.province_code,createdBy:scope.user.user_id || scope.role,centreIdentity});
+    res.json({message:'Data updated successfully',data:result});
+  }catch(error){return sendScopeError(res,Object.assign(error,{status:error.status || 400}),'Unable to update centre.');}
 };
-
 
 export const deleteCentreDetails = async (req, res) => {
   const { centre_code } = req.params;
@@ -1081,7 +588,7 @@ export const saveCentreDetailsByExcel = async (req, res) => {
     try {
       const filePath = req.file.path;
       const fileBuffer = fs.readFileSync(filePath);
-      workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+      workbook = xlsx.read(fileBuffer, { type: 'buffer', cellNF: true });
     } catch (parseError) {
       console.error('Error parsing Excel file:', parseError);
       return res.status(400).json({ error: 'Failed to parse Excel file. Please check the file format.' });
@@ -1100,10 +607,10 @@ export const saveCentreDetailsByExcel = async (req, res) => {
 
     let rows;
     try {
-      rows = xlsx.utils.sheet_to_json(sheet);
+      rows = readCentreSheet(sheet);
     } catch (jsonError) {
       console.error('Error converting sheet to JSON:', jsonError);
-      return res.status(400).json({ error: 'Failed to convert Excel sheet to JSON format.' });
+      return res.status(400).json({ error: jsonError.message });
     }
 
     if (!rows || rows.length === 0) {

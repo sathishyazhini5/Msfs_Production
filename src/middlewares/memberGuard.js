@@ -1,5 +1,5 @@
 import {MEMBER_ROLE,MemberAccessService} from '../services/memberAccessService.js';
-export const memberRouteAllowed=(method,path)=>method==='GET' && /^\/estatus\/(confrere|scholastic|centre|obituary)(?:\/filters|\/record\/[^/]+)?\/?$/.test(path);
+export const memberRouteAllowed=(method,path)=>method==='GET' && /^\/estatus\/(confrere|scholastic|centre|obituary)(?:\/filters|\/export|\/record\/[^/]+)?\/?$/.test(path);
 export function createMemberGuard(db) {
  const service=new MemberAccessService({db});
  return async(req,res,next)=>{
@@ -7,6 +7,11 @@ export function createMemberGuard(db) {
   try {
    const changingPassword=req.method==='POST'&&req.path==='/member-access/change-initial-password';
    if(!changingPassword && !memberRouteAllowed(req.method,req.path))return res.status(403).json({error:'Member accounts can only view authorized E-Status directories.'});
+   if (res.locals.user.member_session) {
+    if (!memberRouteAllowed(req.method,req.path)) return res.status(403).json({error:'Member access is read-only.'});
+    const provinces=await db.province_mst.findMany({where:{concretion_code:res.locals.user.concretion_code},select:{province_code:true}});
+    req.memberProvinceCodes=provinces.map(p=>p.province_code); return next();
+   }
    const account=await db.users_mst.findUnique({where:{user_id:res.locals.user.user_id},select:{role_name:true,role_code:true}});
    if(account?.role_name!==MEMBER_ROLE || account?.role_code!=='MEMBER')return res.status(403).json({error:'Member account no longer authorized.'});
    const access=await service.active(res.locals.user.user_id);

@@ -1,0 +1,922 @@
+generator client {
+  provider = "prisma-client-js"
+  output = "../../qa-artifacts/oct30-prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model component_activity {
+  componentcode         String                       @db.VarChar(20)
+  componentname         String                       @db.VarChar(100)
+  activitycode          String                       @db.VarChar(20)
+  activityname          String                       @db.VarChar(100)
+  userRoleComActivities user_role_com_activity_mst[] @relation("ComponentActivityRelation")
+
+  @@id([componentcode, activitycode])
+}
+
+model meta_data_mst {
+  screen_code    String @db.VarChar(10) // PK
+  meta_code      String @db.VarChar(10) // PK
+  screen_name    String @db.VarChar(50)
+  meta_code_name String @db.VarChar(50)
+
+  @@id([screen_code, meta_code])
+}
+
+model province_mst {
+  province_code   String    @id @db.VarChar(10) // PK
+  province_name   String    @db.VarChar(100)
+  concretion_code String    @db.VarChar(10)
+  short_name      String    @db.VarChar(5)
+  email           String    @db.VarChar(255) // Added email field
+  language_code   String?   @db.VarChar(2)
+  concurrency_val Int?
+  created_by      String?   @db.VarChar(50)
+  created_date    DateTime?
+  updated_by      String?   @db.VarChar(50)
+  updated_date    DateTime?
+}
+
+model quickcode_mst {
+  quick_code_type String    @db.VarChar(10) // PK
+  quick_code      String    @db.VarChar(10) // PK
+  quickcode_name  String    @db.VarChar(100)
+  language_code   String?   @db.VarChar(2)
+  concurrency_val Int?
+  created_by      String?   @db.VarChar(50)
+  created_date    DateTime?
+  updated_by      String?   @db.VarChar(50)
+  updated_date    DateTime?
+
+  @@id([quick_code_type, quick_code])
+  @@index([quickcode_name], map: "quickcode_name_idx")
+}
+
+model country_mst {
+  province_code   String    @db.VarChar(10) // PK
+  country_code    String    @db.VarChar(10) // PK
+  country_name    String    @db.VarChar(100)
+  ISD_code        String    @db.VarChar(5)
+  language_code   String?   @db.VarChar(2)
+  concurrency_val Int?
+  created_by      String?   @db.VarChar(50)
+  created_date    DateTime?
+  updated_by      String?   @db.VarChar(50)
+  updated_date    DateTime?
+
+  @@id([country_code, province_code])
+}
+
+model state_mst {
+  province_code   String    @db.VarChar(10) // PK
+  state_code      String    @db.VarChar(10) // PK
+  country_code    String    @db.VarChar(10) // PK
+  state_name      String    @db.VarChar(100)
+  ISD_code        String    @db.VarChar(4)
+  language_code   String?   @db.VarChar(2)
+  concurrency_val Int?
+  created_by      String?   @db.VarChar(50)
+  created_date    DateTime?
+  updated_by      String?   @db.VarChar(50)
+  updated_date    DateTime?
+
+  @@id([state_code, country_code, province_code])
+}
+
+model province_country_map_mst {
+  province_code      String    @db.VarChar(10) // PK
+  country_code       String    @db.VarChar(10) // PK
+  inter_province_chk Int
+  date_format        String?   @db.VarChar(12)
+  academic_year      String?   @db.VarChar(12)
+  language_code      String?   @db.VarChar(2)
+  concurrency_val    Int?
+  created_by         String?   @db.VarChar(50)
+  created_date       DateTime?
+  updated_by         String?   @db.VarChar(50)
+  updated_date       DateTime?
+
+  @@id([province_code, country_code])
+}
+
+model apostolates_mst {
+  province_code    String    @db.VarChar(10) // PK
+  apostolate_code  String    @db.VarChar(10) // PK
+  centre_type_code String    @db.VarChar(10) // PK
+  apostolate_name  String    @db.VarChar(100)
+  centre_type_name String    @db.VarChar(100)
+  language_code    String?   @db.VarChar(2)
+  concurrency_val  Int?
+  created_by       String?   @db.VarChar(50)
+  created_date     DateTime?
+  updated_by       String?   @db.VarChar(50)
+  updated_date     DateTime?
+
+  @@id([apostolate_code, centre_type_code, province_code])
+}
+
+model users_mst {
+  must_change_password Boolean @default(false)
+  user_type_code      String                        @db.VarChar(100)
+  prov_concre_code    String                        @db.VarChar(100)
+  user_id             String                        @db.VarChar(100) @unique // ✅ Add this
+  first_name          String                        @db.VarChar(100)
+  last_name           String?                       @db.VarChar(100)
+  password            String                        @db.VarChar(200)
+  role_code           String?                       @db.VarChar(100)
+  role_name           String?                       @db.VarChar(100)
+  language_code       String?                       @db.VarChar(2)
+  concurrency_val     Int?
+  created_by          String?                       @db.VarChar(100)
+  created_date        DateTime?                     @db.Timestamp(6)
+  updated_by          String?                       @db.VarChar(100)
+  updated_date        DateTime?                     @db.Timestamp(6)
+
+  // ✅ Relation to activity mappings
+  user_role_com_activity_mst user_role_com_activity_mst[] @relation("UserActivitiesRelation")
+  member_access MemberAccess?
+
+  @@id([user_type_code, prov_concre_code, user_id])
+}
+model division_setup_mst {
+  province_code      String    @db.VarChar(10) // PK
+  division_type_code String    @db.VarChar(50) // PK
+  division_code      String    @db.VarChar(10) // PK
+  division_name      String    @db.VarChar(50)
+  language_code      String?   @db.VarChar(2)
+  concurrency_val    Int?
+  created_by         String?   @db.VarChar(50)
+  created_date       DateTime?
+  updated_by         String?   @db.VarChar(50)
+  updated_date       DateTime?
+
+  @@id([province_code, division_type_code, division_code])
+}
+
+model user_role_com_activity_mst {
+  user_type_code    String             @db.VarChar(100)
+  prov_concre_code  String             @db.VarChar(100)
+  role_code         String             @db.VarChar(100)
+  component_code    String             @db.VarChar(100)
+  activity_code     String             @db.VarChar(100)
+  role_name         String?            @db.VarChar(100)
+  component_name    String?            @db.VarChar(100)
+  activity_name     String?            @db.VarChar(100)
+  add_flag          Boolean
+  edit_flag         Boolean
+  delete_flag       Boolean
+  language_code     String?            @db.VarChar(2)
+  concurrency_val   Int?
+  created_by        String?            @db.VarChar(100)
+  created_date      DateTime?
+  updated_by        String?            @db.VarChar(100)
+  updated_date      DateTime?
+  user_id           String?            @db.VarChar(100)
+
+  // ComponentActivity relation
+  componentActivity component_activity @relation("ComponentActivityRelation", fields: [component_code, activity_code], references: [componentcode, activitycode])
+
+  // 👇 Add this line to connect back to users_mst
+  user users_mst? @relation("UserActivitiesRelation", fields: [user_id], references: [user_id])
+
+  @@id([user_type_code, prov_concre_code, role_code, component_code, activity_code])
+}
+
+  model concretion_defination_mst {
+    concretion_code String  @db.VarChar(10) // Primary Key
+    concretion_name String? @db.VarChar(100)
+    contact_name    String? @db.VarChar(100)
+    mobile_isd      String? @db.VarChar(5)
+    mobile_no       String? @db.VarChar(20) // Mobile number as String
+    email           String? @db.VarChar(255)
+    status          String? @db.VarChar(10) // Status (e.g., "Active", etc.)
+    created_by      String? @db.VarChar(100) // The user who created the record
+    created_date    DateTime?               // Date when the record was created
+    updated_by      String? @db.VarChar(100) // The user who last updated the record
+    updated_date    DateTime?               // Date when the record was last updated
+    branding        CongregationBranding?
+
+    @@id([concretion_code]) // Composite primary key
+  }
+
+
+
+model languagemetadata {
+  language_name String
+  language_code String @id @unique
+}
+
+model nationalitymetadata {
+  nationality String
+  code        String @id @unique
+}
+
+model countrymetadata {
+  alpha_3code  String @id @unique
+  country_name String
+  alpha_2code  String
+  ISD_code     String
+}
+
+model bloodgroup_metadata {
+  bloodgroup String
+  code       String @id @unique
+}
+
+model date_format_metadata {
+  date_format_name String
+  date_format_code String @unique
+}
+
+// 1. headquarters_dtl
+model headquarters_dtl {
+  headquarters_code    String    @db.VarChar(10) // PK
+  province_code        String    @db.VarChar(10) // PK
+  division_type_code   String    @db.VarChar(10) // PK
+  division_code        String    @db.VarChar(10) // PK
+  headquarters_name    String?   @db.VarChar(100)
+  address1             String    @db.Text
+  address2             String?   @db.Text
+  place                String    @db.VarChar(100)
+  city_dist            String    @db.VarChar(100)
+  pin_zipcode          Int
+  country_code         String    @db.VarChar(10)
+  state_code           String    @db.VarChar(10)
+  courier_address1     String?   @db.Text
+  courier_address2     String?   @db.Text
+  courier_place        String?   @db.VarChar(100)
+  courier_city_dist    String?   @db.VarChar(100)
+  courier_pin_zipcode  Int?
+  courier_country_code String?   @db.VarChar(10)
+  courier_state_code   String?   @db.VarChar(10)
+  other_address1       String?   @db.Text
+  other_address2       String?   @db.Text
+  other_place          String?   @db.VarChar(100)
+  other_city_dist      String?   @db.VarChar(100)
+  other_pin_zipcode    Int?
+  other_country_code   String?   @db.VarChar(10)
+  other_state_code     String?   @db.VarChar(10)
+  phone1_isd           String    @db.VarChar(5)
+  phone1_no            BigInt
+  phone2_isd           String?   @db.VarChar(5)
+  phone2_no            BigInt?
+  phone3_isd           String?   @db.VarChar(5)
+  phone3_no            BigInt?
+  mobile1_isd          String?   @db.VarChar(5)
+  mobile1_no           BigInt?
+  mobile2_isd          String?   @db.VarChar(5)
+  mobile2_no           BigInt?
+  mobile3_isd          String?   @db.VarChar(5)
+  mobile3_no           BigInt?
+  watsup_isd           String?   @db.VarChar(5)
+  watsup_no            BigInt?
+  fax_isd              String?   @db.VarChar(5)
+  fax_no               BigInt?
+  office_mailid1       String    @db.VarChar(255)
+  office_mailid2       String?   @db.VarChar(255)
+  office_mailid3       String?   @db.VarChar(255)
+  website1             String?   @db.Text
+  website2             String?   @db.Text
+  website3             String?   @db.Text
+  secretary_isd        String?   @db.VarChar(5)
+  secretary_contact_no BigInt?
+  secretary_mailid     String?   @db.VarChar(255)
+  bursar_isd           String?   @db.VarChar(5)
+  bursar_contact_no    BigInt?
+  bursar_mailid        String?   @db.VarChar(255)
+  language_code        String?   @db.VarChar(2)
+  concurrency_val      Int?
+  created_by           String?   @db.VarChar(50)
+  created_date         DateTime?
+  updated_by           String?   @db.VarChar(50)
+  updated_date         DateTime?
+
+  @@id([headquarters_code, province_code, division_type_code, division_code])
+}
+
+// 2. confreres_dtl
+model confreres_dtl {
+  import_key            String?   @unique @db.VarChar(64)
+  confrer_code          String    @db.VarChar(15) // PK
+  province_code         String    @db.VarChar(10) // PK
+  member_type_code      String?   @db.VarChar(10)
+  first_name            String?   @db.VarChar(50)
+  middle_name           String?   @db.VarChar(50)
+  last_name             String?   @db.VarChar(50)
+  image_file_name       String?   @db.VarChar(100)
+  image_file_path       String?   @db.Text
+  birth_date            DateTime?
+  baptism_date          DateTime?
+  confirmation_date     DateTime?
+  first_profession_date DateTime?
+  final_profession_date DateTime?
+  ordination_date       DateTime?
+  personal1_isd         String?   @db.VarChar(5)
+  personal1_contact_no  String? @db.VarChar(20)
+  personal2_isd         String?   @db.VarChar(5)
+  personal2_contact_no  String? @db.VarChar(20)
+  personal3_isd         String?   @db.VarChar(5)
+  personal3_contact_no  String? @db.VarChar(20)
+  watsup1_isd           String?   @db.VarChar(5)
+  watsup1_no            String? @db.VarChar(20)
+  watsup2_isd           String?   @db.VarChar(5)
+  watsup2_no            String? @db.VarChar(20)
+  watsup3_isd           String?   @db.VarChar(5)
+  watsup3_no            String? @db.VarChar(20)
+  emergency_isd         String?   @db.VarChar(5)
+  emergency_contact_no  String? @db.VarChar(20)
+  personal_mailid1      String?   @db.VarChar(255)
+  blood_group_code      String?   @db.VarChar(10)
+  nationality_code      String?   @db.VarChar(10)
+  language_code         String?   @db.VarChar(2)
+  concurrency_val       Int?
+  created_by            String?   @db.VarChar(50)
+  created_date          DateTime?
+  updated_by            String?   @db.VarChar(50)
+  updated_date          DateTime?
+  is_active             Boolean   @default(true)
+  
+
+  @@id([confrer_code, province_code])
+  @@unique([confrer_code])
+}
+
+model confrere_code_counter {
+  province_code    String @db.VarChar(10)
+  ordination_year  Int
+  last_sequence    Int
+  updated_date     DateTime @default(now()) @updatedAt
+
+  @@id([province_code, ordination_year])
+}
+
+// 3. confreres_feedback_dtl
+model confreres_feedback_dtl {
+  confrer_code            String    @db.VarChar(15) // PK
+  confrer_feedback_seq_no Int // PK
+  province_code           String    @db.VarChar(10) // PK
+  commencement_date       DateTime?
+  designation_code        String?   @db.VarChar(10)
+  feedback_type_code      String?   @db.VarChar(10)
+  title_subject           String?   @db.VarChar(25)
+  feedback_description    String?   @db.Text
+  remarks                 String?   @db.Text
+  signature               String?   @db.Text
+  feedback_file_name      String?   @db.VarChar(100)
+  feedback_file_path      String?   @db.Text
+  language_code         String?   @db.VarChar(2)
+  concurrency_val       Int?
+  created_by            String?   @db.VarChar(50)
+  created_date          DateTime?
+  updated_by            String?   @db.VarChar(50)
+  updated_date          DateTime?
+  
+
+  @@id([confrer_code, confrer_feedback_seq_no, province_code])
+}
+
+// 4. community_house_dtl
+model community_house_dtl {
+  community_house_code String    @db.VarChar(10) // PK
+  province_code        String    @db.VarChar(10) // PK
+  division_type_code   String    @db.VarChar(50) // PK
+  division_code        String    @db.VarChar(10) // PK
+  community_house_name String?   @db.VarChar(50)
+  language_code        String?   @db.VarChar(2)
+  concurrency_val      Int?
+  created_by           String?   @db.VarChar(50)
+  created_date         DateTime?
+  updated_by           String?   @db.VarChar(50)
+  updated_date         DateTime?
+
+  @@id([community_house_code, province_code, division_type_code, division_code])
+}
+
+// 5. centre_dtl
+model centre_dtl {
+  centre_code          String    @db.VarChar(10) // PK
+  province_code        String    @db.VarChar(10) // PK
+  division_type_code   String    @db.VarChar(50) // PK
+  division_code        String    @db.VarChar(10) // PK
+  apostolate_code      String?   @db.VarChar(10)
+  centre_type_code     String?   @db.VarChar(10)
+  community_house_code String?   @db.VarChar(10)
+  centre_name          String?   @db.VarChar(100)
+  centre_place         String?   @db.VarChar(100)
+  address1             String    @db.Text
+  address2             String?   @db.Text
+  address3             String?   @db.Text
+  city_dist            String?   @db.VarChar(100)
+  pin_zipcode          String @db.VarChar(32)
+  country_code         String    @db.VarChar(10)
+  state_code           String    @db.VarChar(10)
+ diocese_code          String  @db.VarChar(100)
+  phone1_isd           String    @db.VarChar(5)
+  phone1_no            String @db.VarChar(40)
+  phone2_isd           String?   @db.VarChar(5)
+  phone2_no            String? @db.VarChar(40)
+  phone3_isd           String?   @db.VarChar(5)
+  phone3_no            String? @db.VarChar(40)
+  mobile1_isd          String?   @db.VarChar(5)
+  mobile1_no           String? @db.VarChar(40)
+  mobile2_isd          String?   @db.VarChar(5)
+  mobile2_no           String? @db.VarChar(40)
+  mobile3_isd          String?   @db.VarChar(5)
+  mobile3_no           String? @db.VarChar(40)
+  watsup_isd           String?   @db.VarChar(5)
+  watsup_no            String? @db.VarChar(40)
+  fax_isd              String?   @db.VarChar(5)
+  fax_no               String? @db.VarChar(40)
+  office_mailid1       String    @db.VarChar(255)
+  office_mailid2       String?   @db.VarChar(255)
+  office_mailid3       String?   @db.VarChar(255)
+  website1             String?   @db.Text
+  website2             String?   @db.Text
+  website3             String?   @db.Text
+  language_code        String?   @db.VarChar(2)
+  concurrency_val      Int?
+  created_by           String?   @db.VarChar(50)
+  created_date         DateTime?
+  updated_by           String?   @db.VarChar(50)
+  updated_date         DateTime?
+
+  @@id([centre_code, province_code, division_type_code, division_code])
+}
+
+// 6. curia_advisors_dtl
+model curia_advisors_dtl {
+   curia_code           String  @db.VarChar(10)
+  confrer_code       String    @db.VarChar(15) // PK
+  province_code      String    @db.VarChar(10) // PK
+  division_type_code String    @db.VarChar(50) // PK
+  division_code      String    @db.VarChar(10) // PK
+  designation_code   String?   @db.VarChar(10)
+  pcic_off_code      String?   @db.VarChar(10)
+  gcic_off_code      String?   @db.VarChar(10)
+  appointment_date   DateTime
+  mandate_code       String?   @db.VarChar(10)
+  installation_date  DateTime
+  mandate_end_date   DateTime
+   personal1_isd        String? @db.VarChar(5)
+  personal1_contact_no BigInt?
+  watsup1_isd          String? @db.VarChar(5)
+  watsup1_no           BigInt?
+  personal_mailid1     String  @db.VarChar(255)
+  office1_isd        String?   @db.VarChar(5)
+  office1_contact_no BigInt?
+  office2_isd        String?   @db.VarChar(5)
+  office2_contact_no BigInt?
+  office3_isd        String?   @db.VarChar(5)
+  office3_contact_no BigInt?
+  office_mailid1     String    @db.VarChar(255)
+  office_mailid2     String?   @db.VarChar(255)
+  office_mailid3     String?   @db.VarChar(255)
+  language_code      String?   @db.VarChar(2)
+  concurrency_val    Int?
+  created_by         String?   @db.VarChar(50)
+  created_date       DateTime?
+  updated_by         String?   @db.VarChar(50)
+  updated_date       DateTime?
+
+  @@id([curia_code,confrer_code, province_code, division_type_code, division_code])
+}
+
+// 7. appoint_transfer_dtl
+model appoint_transfer_dtl {
+  confrer_code                String    @db.VarChar(15)
+  confrer_seq_no              Int
+  province_code               String    @db.VarChar(10)
+  division_type_code          String    @db.VarChar(50)
+  division_code               String    @db.VarChar(10)
+  centre_place_code           String    @db.VarChar(50) // Increased length from 10 to 50
+  centre_code                 String    @db.VarChar(50)
+  inter_province_transfer_chk Int
+  designation_code            String    @db.VarChar(10)
+  designation_appn_date       DateTime  @db.Date
+  designation_taken_date      DateTime? @db.Date
+  designation_end_date        DateTime? @db.Date
+  mode                        String?   @db.VarChar(25)
+  language_code               String?   @db.VarChar(2)
+  concurrency_val             Int?
+  created_by                  String?   @db.VarChar(50)
+  created_date                DateTime? @db.Timestamp(6)
+  updated_by                  String?   @db.VarChar(50)
+  updated_date                DateTime? @db.Timestamp(6)
+  is_active                   Boolean   @default(true)
+
+  @@id([confrer_code, confrer_seq_no])
+  @@index([centre_place_code], map: "idx_centre_place_code")
+  @@index([province_code], map: "idx_province_code")
+}
+
+// 8. appoint_transfer_his_dtl
+model appoint_transfer_his_dtl {
+  confrer_code                String    @db.VarChar(15) // PK
+  confrer_seq_no              Int // PK
+  confrer_his_seq_no          Int // PK
+  province_code               String    @db.VarChar(10)
+  division_type_code          String?   @db.VarChar(50)
+  division_code               String?   @db.VarChar(10)
+  centre_place_code           String    @db.VarChar(50)
+  centre_code                 String?   @db.VarChar(10)
+  inter_province_transfer_chk Int?
+  designation_code            String?   @db.VarChar(10)
+  designation_appn_date       DateTime
+  designation_taken_date      DateTime?
+  designation_end_date        DateTime?
+  mode                        String?   @db.VarChar(25)
+  language_code               String?   @db.VarChar(2)
+  concurrency_val             Int?
+  created_by                  String?   @db.VarChar(50)
+  created_date                DateTime?
+  updated_by                  String?   @db.VarChar(50)
+  updated_date                DateTime?
+
+  @@id([confrer_code, confrer_seq_no, confrer_his_seq_no])
+}
+
+// 9. scholastics_dtl
+model scholastics_dtl {
+  scholastic_code       String    @db.VarChar(10) // PK
+  province_code         String    @db.VarChar(10) // PK
+  first_name            String    @db.VarChar(50)
+  middle_name           String?   @db.VarChar(50)
+  last_name             String    @db.VarChar(50)
+  image_file_name       String?   @db.VarChar(100)
+  image_file_path       String?   @db.Text
+  birth_date            DateTime
+  baptism_date          DateTime
+  confirmation_date     DateTime
+  first_profession_date DateTime?
+  final_profession_date DateTime?
+  diaconate_ordination_date DateTime?
+  ordination_date       DateTime?
+  personal1_isd         String?   @db.VarChar(5)
+  personal1_contact_no  BigInt?
+  watsup1_isd           String?   @db.VarChar(5)
+  watsup1_no            BigInt?
+  emergency_isd         String?   @db.VarChar(5)
+  emergency_contact_no  BigInt?
+  personal_mailid1      String    @db.VarChar(255)
+  blood_group_code      String?   @db.VarChar(10)
+  nationality_code      String?   @db.VarChar(10)
+  member_type_code      String?   @db.VarChar(10)
+  language_code         String?   @db.VarChar(2)
+  concurrency_val       Int?
+  created_by            String?   @db.VarChar(50)
+  created_date          DateTime?
+  updated_by            String?   @db.VarChar(50)
+  updated_date          DateTime?
+  is_active            Boolean   @default(true)
+
+  @@id([scholastic_code, province_code])
+}
+
+// 10. scholastics_admisn_promon_dtl
+model scholastics_admisn_promon_dtl {
+  scholastics_admisn_code  String @db.VarChar(10)
+  scholastic_code       String  @db.VarChar(10)
+  seq_no                Int
+  centre_code           String  @db.VarChar(10)
+  centre_place          String  @db.VarChar(100)
+  province_code         String  @db.VarChar(10)
+  division_type_code    String  @db.VarChar(50)
+  division_code         String  @db.VarChar(10)
+  formation_type_code   String? @db.VarChar(10)
+  scholastic_type_code  String? @db.VarChar(10)
+  promotion_to_code     String? @db.VarChar(10)
+  promotion_date        DateTime?
+  start_date            DateTime?
+  end_date              DateTime?  
+  year_formation_code   String? @db.VarChar(10)
+  academic_year         String? @db.VarChar(12)
+  remarks               String?
+  language_code         String? @db.VarChar(2)
+  concurrency_val       Int?
+  created_by            String? @db.VarChar(50)
+  created_date          DateTime?
+  updated_by            String? @db.VarChar(50)
+  updated_date          DateTime?
+  inter_province_transfer_chk Int?  // Added column
+  mode                     String?  @db.VarChar(25) // Added column
+  @@id([scholastics_admisn_code,scholastic_code, centre_code])
+}
+
+model scholastics_admisn_his_dtl {
+  scholastics_admisn_code  String  @db.VarChar(10) // Admission code
+  scholastic_code          String  @db.VarChar(10) // Scholastic code
+  seq_no                   Int     // Sequence number
+  scholastic_his_seq_no       Int     // New field for historical sequence number
+  centre_code              String  @db.VarChar(10) // Centre code
+  centre_place             String  @db.VarChar(100) // Centre place
+  province_code            String  @db.VarChar(10) // Province code
+  division_type_code       String  @db.VarChar(50) // Division type code
+  division_code            String  @db.VarChar(10) // Division code
+  formation_type_code      String? @db.VarChar(10) // Formation type code
+  scholastic_type_code     String? @db.VarChar(10) // Scholastic type code
+  promotion_to_code        String? @db.VarChar(10) // Promotion to code
+  promotion_date           DateTime? // Promotion date
+  start_date               DateTime? // Start date
+  end_date                 DateTime? // End date
+  year_formation_code      String? @db.VarChar(10) // Year formation code
+  academic_year            String? @db.VarChar(12) // Academic year
+  remarks                  String? // Remarks
+  language_code            String? @db.VarChar(2) // Language code
+  concurrency_val          Int?    // Concurrency value
+  created_by               String? @db.VarChar(50) // Created by
+  created_date             DateTime? // Created date
+  updated_by               String? @db.VarChar(50) // Updated by
+  updated_date             DateTime? // Updated date
+  inter_province_transfer_chk Int?  // Indicator for inter-province transfer (0 = intra, 1 = inter)
+  mode                     String? @db.VarChar(25) // Mode of promotion or admission
+  
+  @@id([scholastics_admisn_code, scholastic_code, centre_code, scholastic_his_seq_no]) // Composite primary key including his_seq_no
+}
+
+
+model scholastics_feedback_dtl{
+  scholastic_feedback_code  String   @db.VarChar(10)
+  scholastic_code           String   @db.VarChar(10) // Links to scholastics_dtl
+  scholastic_feedback_seq_no Int
+  province_code       String    @db.VarChar(10)
+  academic_detail     String    @db.VarChar(255)
+  feedback_date       DateTime?  @db.Date
+  title_subject       String?    @db.VarChar(25)
+  comment             String?
+  signature           String?  
+  uploaded_file_name  String?   @db.VarChar(100)
+  uploaded_file_path  String?
+  created_by          String?   @db.VarChar(50)
+  created_date        DateTime? @default(now())
+  updated_by          String?   @db.VarChar(50)
+  updated_date        DateTime?
+  @@id([scholastic_feedback_code, scholastic_code , scholastic_feedback_seq_no, province_code])
+}
+
+// 11. departures_dtl
+model departures_dtl {
+  departure_code         String  @id @db.VarChar(10)
+  province_code          String  @db.VarChar(10)
+  confrer_scholastic_code String  @db.VarChar(15)
+  member_type_code       String? @db.VarChar(10)
+  departure_type_code    String? @db.VarChar(10)
+  departure_date         DateTime?
+  remarks                String?
+  language_code          String? @db.VarChar(2)
+  concurrency_val        Int?
+  created_by             String? @db.VarChar(50)
+  created_date           DateTime?
+  updated_by             String? @db.VarChar(50)
+  updated_date           DateTime?
+
+  date_of_death          DateTime? 
+  place_of_death         String?    @db.VarChar(100) 
+  cause_of_death         String?    @db.VarChar(255)
+  country_of_death       String?    @db.VarChar(3)   
+  country_of_origin      String?    @db.VarChar(3)   
+
+  @@unique([province_code, confrer_scholastic_code])
+}
+
+// 12. anniversary_notify_dtl
+model anniversary_notify_dtl {
+  notify_id               Int       @id @default(autoincrement()) // PK
+  province_code           String    @db.VarChar(10)
+  anniversary_type_code   String?   @db.VarChar(10)
+  confrer_scholastic_code String?   @db.VarChar(15)
+  notify_sent_date        DateTime?
+  nofify_received_flag    Int?
+  anniversary_date        DateTime?
+  contact_isd             String?   @db.VarChar(5)
+  contact_no              BigInt?
+  emailid                 String?   @db.VarChar(255)
+  message_chk             Int
+  email_chk               Int
+  language_code           String?   @db.VarChar(2)
+  concurrency_val         Int?
+  created_by              String?   @db.VarChar(50)
+  created_date            DateTime?
+  updated_by              String?   @db.VarChar(50)
+  updated_date            DateTime?
+}
+
+// 13. event_dtl
+model event_dtl {
+  event_id        String    @db.VarChar(10) 
+  province_code   String    @db.VarChar(10)
+  event_name      String?   @db.VarChar(255)
+  event_date      DateTime?
+  venue           String?   @db.VarChar(100)
+  event_detail    String?   @db.Text
+  language_code   String?   @db.VarChar(10)
+  from_time       DateTime? @db.Time   
+  to_time         DateTime? @db.Time 
+  concurrency_val Int?
+  mail_sent       Boolean   @default(false)
+  created_by      String?   @db.VarChar(50)
+  created_date    DateTime?
+  updated_by      String?   @db.VarChar(50)
+  updated_date    DateTime?
+
+  @@id([event_id, province_code]) // Composite key
+}
+
+// 14. announcements_dtl
+model announcements_dtl {
+  anouncement_id     String    @db.VarChar(10) // Part of the composite key
+  province_code      String    @db.VarChar(10) // Part of the composite key
+  division_type_code String?   @db.VarChar(50)
+  division_code      String?   @db.VarChar(10)
+  apostolate_code    String?   @db.VarChar(10)
+  centre_place_code  String?   @db.VarChar(10)
+  centre_code        String?   @db.VarChar(10)
+  member_type_code   String?   @db.VarChar(10)
+  designation_code   String?   @db.VarChar(10)
+  anouncement_subjt  String?   @db.VarChar(100)
+  anouncement_dtl    String?   @db.Text
+  signature_address  String?   @db.Text
+  language_code      String?   @db.VarChar(2)
+  concurrency_val    Int?
+  created_by         String?   @db.VarChar(50)
+  created_date       DateTime?
+  updated_by         String?   @db.VarChar(50)
+  updated_date       DateTime?
+  mail_sent       Boolean   @default(false)
+
+  @@id([anouncement_id, province_code]) // Composite primary key
+}
+
+// 15. obituary_dtl
+model obituary_dtl {
+  obituary_code          String     @db.VarChar(10)
+  province_code           String    @db.VarChar(10) // PK
+  confrer_scholastic_code String    @db.VarChar(15) // PK
+  member_type_code        String?   @db.VarChar(10)
+  cause_of_death         String? @db.VarChar(100)
+  disease_name            String?   @db.VarChar(100)
+  death_place             String?   @db.VarChar(100)
+  death_date              DateTime?
+  death_country_code      String?   @db.VarChar(10)
+  orgin_country_code      String?   @db.VarChar(10)
+  remarks                 String?   @db.Text
+  language_code           String?   @db.VarChar(2)
+  concurrency_val         Int?
+  created_by              String?   @db.VarChar(50)
+  created_date            DateTime?
+  updated_by              String?   @db.VarChar(50)
+  updated_date            DateTime?
+
+  @@id([obituary_code,province_code, confrer_scholastic_code])
+}
+
+model otpstore {
+  id        Int      @id @default(autoincrement())
+  user_id   String   @db.VarChar(50)
+  otp       String   @db.VarChar(6)
+  expiry    DateTime
+  createdat DateTime @default(now())
+}
+
+
+// Circulars are additive and retain immutable recipient snapshots once queued.
+model Circular {
+  id                 String   @id @default(uuid()) @db.Uuid
+  sender_id          String
+  sender_role        String
+  province_codes     String[]
+  subject            String   @default("") @db.VarChar(200)
+  message            String   @default("")
+  circular_type      String   @default("Circular") @db.VarChar(20)
+  signature          String   @default("")
+  content_snapshot   Json?
+  selection          Json
+  selection_summary  Json
+  status             String   @default("Draft")
+  version            Int      @default(1)
+  submission_key     String?  @unique
+  attachment_id      String?  @unique @db.Uuid
+  attachment         CircularAttachment? @relation(fields: [attachment_id], references: [id], onDelete: Restrict)
+  recipients         CircularRecipient[]
+  recipient_count    Int      @default(0)
+  sent_count         Int      @default(0)
+  failed_count       Int      @default(0)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @updatedAt @db.Timestamptz(6)
+  queued_at          DateTime? @db.Timestamptz(6)
+  finished_at        DateTime? @db.Timestamptz(6)
+  @@index([status, created_at])
+  @@index([sender_id, status])
+  @@index([province_codes], type: Gin)
+}
+
+model CircularAttachment {
+  id             String   @id @default(uuid()) @db.Uuid
+  owner_id       String
+  province_codes String[]
+  blob_key       String   @unique
+  filename       String
+  mime_type      String
+  size           Int
+  sha256         String
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  circular       Circular?
+}
+
+model CircularRecipient {
+  id                  String @id @default(uuid()) @db.Uuid
+  circular_id         String @db.Uuid
+  circular            Circular @relation(fields: [circular_id], references: [id], onDelete: Cascade)
+  email               String
+  snapshot            Json
+  status              String @default("Queued")
+  attempts            Int @default(0)
+  retryable           Boolean @default(true)
+  next_attempt_at     DateTime @default(now()) @db.Timestamptz(6)
+  lease_token         String? @db.Uuid
+  lease_until         DateTime? @db.Timestamptz(6)
+  smtp_started_at     DateTime? @db.Timestamptz(6)
+  provider_message_id String?
+  sent_at             DateTime? @db.Timestamptz(6)
+  delivered_at        DateTime? @db.Timestamptz(6)
+  last_error          String?
+  @@unique([circular_id, email])
+  @@index([status, next_attempt_at])
+  @@index([status, lease_until])
+}
+
+model CongregationBranding {
+  concretion_code String @id @db.VarChar(10)
+  congregation    concretion_defination_mst @relation(fields: [concretion_code], references: [concretion_code], onDelete: Cascade, map: "CongregationBranding_congregation_fkey")
+  logo_key        String?
+  mime_type       String?
+  sha256          String?
+  updated_by      String
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+}
+
+model MemberAccess {
+  user_id String @id @db.VarChar(100)
+  user users_mst @relation(fields:[user_id], references:[user_id], onDelete: Cascade)
+  person_kind String @db.VarChar(20)
+  person_code String @db.VarChar(50)
+  province_code String @db.VarChar(10)
+  concretion_code String @db.VarChar(10)
+  enabled Boolean @default(true)
+  password_initialized_at DateTime? @db.Timestamptz(6)
+  password_change_required Boolean @default(false)
+  password_changed_at DateTime? @db.Timestamptz(6)
+  welcome_status String @default("NotRequested") @db.VarChar(24)
+  welcome_attempts Int @default(0)
+  welcome_started_at DateTime? @db.Timestamptz(6)
+  welcome_sent_at DateTime? @db.Timestamptz(6)
+  welcome_error String?
+  created_by String @db.VarChar(100)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([person_kind,person_code,province_code])
+}
+model MemberPasswordToken {
+  user_id String @id @db.VarChar(100)
+  token_hash String @db.VarChar(64)
+  expires_at DateTime @db.Timestamptz(6)
+  attempts Int @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+model AnnualWish {
+  person_identity String @db.VarChar(100)
+  id String @id @default(uuid()) @db.Uuid
+  concretion_code String @db.VarChar(10)
+  person_kind String @db.VarChar(20)
+  person_code String @db.VarChar(50)
+  province_code String @db.VarChar(10)
+  event String @db.VarChar(20)
+  year Int
+  status String @default("Processing") @db.VarChar(20)
+  attempts Int @default(1)
+  smtp_started_at DateTime? @db.Timestamptz(6)
+  sent_at DateTime? @db.Timestamptz(6)
+  last_error String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([concretion_code,person_kind,person_code,province_code,event,year])
+  @@unique([person_identity,event,year])
+}
+
+model MemberOtpChallenge {
+  email String @id
+  digest String
+  attempts Int @default(0)
+  identities Json
+  created_at DateTime @default(now())
+  expires_at DateTime
+}
+model MemberOtpSession {
+  id String @id
+  email String
+  identity Json
+  revoke_digest String
+  expires_at DateTime
+  revoked_at DateTime?
+}

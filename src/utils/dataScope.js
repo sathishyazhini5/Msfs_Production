@@ -8,7 +8,16 @@ export const resolveDataScope = async (req, prisma, requestedProvinceCode = null
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) throw scopeError('Authentication token is required.', 401);
 
-  const user = jwt.verify(authHeader.slice(7), JWT_SECRET);
+  let user = jwt.verify(authHeader.slice(7), JWT_SECRET);
+  // Resolve administrator ownership from the current account rather than stale claims.
+  if (user.user_id && prisma.users_mst) {
+    const account = await prisma.users_mst.findFirst({where:{user_id:user.user_id}});
+    if (!account) throw scopeError('Account is no longer available.',401);
+    const currentRole = normalizedRole(account);
+    user = {...user,role_name:currentRole};
+    if (currentRole === 'congregation admin') user.concretion_code=account.prov_concre_code;
+    if (currentRole === 'province admin') user.province_code=account.prov_concre_code;
+  }
   const role = normalizedRole(user);
   const requested = requestedProvinceCode && requestedProvinceCode !== 'ALL'
     ? requestedProvinceCode

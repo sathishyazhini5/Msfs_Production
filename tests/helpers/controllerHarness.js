@@ -9,6 +9,8 @@ export async function loadController(relative, prisma, {send} = {}) {
   globalThis[key] = prisma;
   if (send) globalThis[`${key}-send`] = send;
   let source = await readFile(url, 'utf8');
+  // Controller tests never contact SMTP; notifications are tested with injected senders.
+  source = source.replace(/import \{accountAudit\} from [^;]+;/, 'const accountAudit = async () => {};');
   source = source.replace(/const prisma = new PrismaClient\(\);/, `const prisma = globalThis[${JSON.stringify(key)}];`);
   if (send) source = source.replace('send:sendAccountEmail', `send:globalThis[${JSON.stringify(`${key}-send`)}]`);
   source = source.replace(/from (['"])([^'"]+)\1/g, (_, quote, specifier) => {

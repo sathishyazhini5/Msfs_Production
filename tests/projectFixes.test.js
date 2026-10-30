@@ -73,18 +73,18 @@ test('PCIC and GCIC count/popup are global and exclude inactive people and blank
   {...curiaBody,curia_code:'C',province_code:'P2',confrer_code:'DEAD2024001'},
   {...curiaBody,curia_code:'D',gcic_off_code:'',pcic_off_code:null});
  const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
- for(const [type,count] of [['PCIC',2],['GCIC',2]]) {
+ for(const [type,count] of [['PCIC',1],['GCIC',1]]) {
   const res=response();await api.getDashboardDetails(request({type,exportAll:true}),res);
   assert.equal(res.statusCode,200,JSON.stringify(res.body));assert.equal(res.body.total,count);assert.equal(res.body.records.length,count);
   const card=response();await api.getDashboardDetails(request({type,pageSize:1}),card);assert.equal(card.body.total,count);
  }
- const global=await officeRecordWhere(db,'GCIC',{province_code:'P1'});assert.equal(global.province_code,undefined);
+ const global=await officeRecordWhere(db,'GCIC',['P1']);assert.deepEqual(global.province_code,{in:['P1']});
 });
 
-test('PCIC and GCIC record reads cross province boundaries; writes and other records remain scoped',async()=>{
+test('PCIC and GCIC reads and writes stay inside authenticated province scope',async()=>{
  const {db}=fixtures();const row={...curiaBody,curia_code:'B',province_code:'P2',confrer_code:'DIB2024001'};
  const req=request({},'GET');req.query={province_code:'P2',confrer_code:'DIB2024001'};
- assert.ok(matches(row,await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
+ assert.ok(!matches(row,await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
  assert.ok(!matches({...row,gcic_off_code:null,pcic_off_code:null},await recordWhere(req,db,{curia_code:'B'},{gcicRead:true})));
  assert.ok(!matches(row,await recordWhere({...req,method:'PUT'},db,{curia_code:'B'},{gcicRead:true})));
  assert.ok(!matches(row,await recordWhere(req,db,{curia_code:'B'})));
@@ -146,12 +146,12 @@ test('admission API saves an entered year, edits it, reopens it and preserves it
  req.body.academic_year='2027-';const invalid=response();await api.updateScholasticsAdmisnPromonDetails(req,invalid);assert.equal(invalid.statusCode,400);assert.equal(tables.scholastics_admisn_promon_dtl[0].academic_year,'2027-2028');
 });
 
-test('Curia middleware permits global GCIC reads but rejects cross-province writes and missing rows',async()=>{
+test('Curia middleware rejects cross-province reads, writes and missing rows',async()=>{
  const {db,tables}=fixtures();tables.curia_advisors_dtl.push({...curiaBody,curia_code:'GLOBAL',confrer_code:'DIB2024001',province_code:'P2'});
  const {curiaAccess}=await loadController('../../src/middlewares/curiaAccess.js',db);
  for(const method of ['GET','PUT','DELETE']) {
   const req=request({},method);req.params.curia_code='GLOBAL';let allowed=false;const res=response();await curiaAccess(req,res,()=>{allowed=true;});
-  assert.equal(allowed,method==='GET');if(method!=='GET')assert.equal(res.statusCode,404);
+  assert.equal(allowed,false);assert.equal(res.statusCode,404);
  }
  const req=request({},'GET');req.params.curia_code='MISSING';const res=response();await curiaAccess(req,res,()=>assert.fail('missing record was authorized'));assert.equal(res.statusCode,404);
 });
@@ -185,7 +185,7 @@ for (const selection of [null, '', undefined]) test(`Curia accepts optional PCIC
 });
 
 
-test('both office drilldowns search globally and Curia views retain linked contacts and the record designation', async () => {
+test('office searches exclude other provinces; authorized Curia views retain contact formatting', async () => {
  const {db,tables}=fixtures();
  Object.assign(tables.confreres_dtl[1], {personal1_isd:'+91',personal1_contact_no:'9876543210'});
  tables.quickcode_mst.push({quick_code_type:'destyp',quick_code:'DES2',quickcode_name:'Rector'});
@@ -197,9 +197,8 @@ test('both office drilldowns search globally and Curia views retain linked conta
  const api=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
  for(const type of ['PCIC','GCIC']) {
   const res=response(); await api.getDashboardDetails(request({type,search:'9876543210'}),res);
-  assert.equal(res.statusCode,200); assert.equal(res.body.scopeLabel,'ALL'); assert.equal(res.body.filteredTotal,1);
-  assert.equal(res.body.records[0].mobile_number,'+91 1234567890');
-  assert.equal(res.body.records[0].current_designations,'Provincial Councillor');
+  assert.equal(res.statusCode,200); assert.equal(res.body.scopeLabel,'Province One'); assert.equal(res.body.filteredTotal,0);
+  assert.deepEqual(res.body.records,[]);
  }
  const curia=await loadController('../../src/controllers/Msfs/curia.js',db);
  const req=request({},'GET');req.curiaRecord=tables.curia_advisors_dtl[0]; const res=response();await curia.getCuriaAdvisor(req,res);
@@ -292,12 +291,12 @@ test('PCIC includes every selected office and filters province/designation acros
   {...curiaBody,curia_code:'C',pcic_off_code:''});
  const {getDashboardDetails}=await loadController('../../src/controllers/Dashboard/dashboardDetails.js',db);
  const run=async options=>{const res=response();await getDashboardDetails(request({type:'PCIC',...options}),res);assert.equal(res.statusCode,200);return res.body;};
- const card=await run({pageSize:1});assert.equal(card.total,2);assert.equal(card.records.length,1);
- assert.equal(card.filterOptions.provinces.length,2);assert.equal(card.filterOptions.designations.length,2);
- assert.deepEqual((await run({exportAll:true})).records.map(row=>row.curia_code),['A','B']);
+ const card=await run({pageSize:1});assert.equal(card.total,1);assert.equal(card.records.length,1);
+ assert.equal(card.filterOptions.provinces.length,1);assert.equal(card.filterOptions.designations.length,1);
+ assert.deepEqual((await run({exportAll:true})).records.map(row=>row.curia_code),['A']);
  for(const options of [{filterProvince:'P1'}, {filterDesignation:'LOCAL'}, {filterProvince:'P1',filterDesignation:'LOCAL',search:'person@example.test',exportAll:true}]) {
-  const result=await run(options);assert.equal(result.total,2);assert.equal(result.filteredTotal,1);assert.equal(result.records[0].curia_code,'A');
-  assert.equal(result.filterOptions.provinces.length,2);
+  const result=await run(options);assert.equal(result.total,1);assert.equal(result.filteredTotal,1);assert.equal(result.records[0].curia_code,'A');
+  assert.equal(result.filterOptions.provinces.length,1);
  }
  const none=await run({filterProvince:'P2',filterDesignation:'LOCAL',exportAll:true});assert.equal(none.filteredTotal,0);assert.deepEqual(none.records,[]);
  assert.equal((await run({filterProvince:'unknown'})).filteredTotal,0);

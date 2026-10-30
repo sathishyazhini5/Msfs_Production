@@ -16,7 +16,8 @@
     "test:member-platform": "node --test tests/memberAnnual.test.js tests/memberWishMigration.test.js tests/enhancements.test.js tests/estatus.test.js",
     "test:circulars": "node --test tests/circulars.test.js tests/circularQueue.test.js tests/circularWorkerRuntime.test.js",
     "members:provision": "node scripts/provisionMembers.js",
-    "members:welcome": "node scripts/memberWelcomeWorker.js"
+    "members:welcome": "node scripts/memberWelcomeWorker.js",
+    "test:oct30": "node --test tests/centreExcelUpload.test.js tests/memberOtp.test.js tests/oct30Filters.test.js tests/accountReset.test.js tests/memberLoginFlow.test.js tests/projectFixes.test.js tests/adminproApproved.test.js tests/estatus.test.js tests/calendarOccasions.test.js tests/enhancements.test.js tests/reports.test.js"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma"

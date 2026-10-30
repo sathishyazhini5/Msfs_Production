@@ -1,3 +1,5 @@
+import {randomBytes} from 'node:crypto';
+import {accountAudit} from '../../services/accountAudit.js';
 import { PrismaClient } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import bcrypt from 'bcrypt';
@@ -29,8 +31,8 @@ const generateNextConcretionCode = async () => {
   return nextCode;
 };
 
-const generateNextQuickCode = async () => {
-  const maxQuickCodeResult = await prisma.quickcode_mst.findMany({
+const generateNextQuickCode = async (db = prisma) => {
+  const maxQuickCodeResult = await db.quickcode_mst.findMany({
     where: { quick_code_type: "rolnam" },
     orderBy: { quick_code: "desc" },
     take: 1,
@@ -122,10 +124,11 @@ export const createConcretion = async (req, res, next) => {
 
     // Generate the next sequential concretion code
     const concretionCode = await generateNextConcretionCode();
-    const defaultPassword = 'pass123'; // Default password for the user
+    const defaultPassword = randomBytes(18).toString('base64url'); // Default password for the user
 
     // Create the concretion entry
-    const newConcretion = await prisma.concretion_defination_mst.create({
+    const {newConcretion,user} = await prisma.$transaction(async tx => {
+    const newConcretion = await tx.concretion_defination_mst.create({
       data: {
         concretion_code: concretionCode,
         concretion_name: concretionName,
@@ -139,9 +142,9 @@ export const createConcretion = async (req, res, next) => {
       },
     });
 
-    const quickCode = await generateNextQuickCode();
+    const quickCode = await generateNextQuickCode(tx);
 
-    await prisma.quickcode_mst.create({
+    await tx.quickcode_mst.create({
       data: {
         quick_code_type: 'rolnam',
         quick_code: quickCode,
@@ -157,7 +160,7 @@ export const createConcretion = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
     // Create a user entry for the concretion
-    const user = await prisma.users_mst.create({
+    const user = await tx.users_mst.create({
       data: {
         user_type_code: quickCode, // Use the concretion code as the user type
         prov_concre_code: concretionCode, // Link the user to the concretion
@@ -165,6 +168,7 @@ export const createConcretion = async (req, res, next) => {
         first_name: contactName || email.split('@')[0], // Use contactName or extract from email
         last_name: null,
         password: hashedPassword,
+        must_change_password: true,
         role_code: quickCode, // Role code is the same as the concretion code
         role_name: 'Concretion Admin',
         language_code: 'en',
@@ -173,6 +177,9 @@ export const createConcretion = async (req, res, next) => {
         created_date: new Date(),
       },
     });
+
+      return {newConcretion,user};
+    },{isolationLevel:'Serializable'});
 
     // Send an email notification
     const emailSubject = 'Your Concretion Registration Details';
@@ -192,15 +199,10 @@ export const createConcretion = async (req, res, next) => {
       Thank you for your support and trust.
     `;
 
-    try {
-      await sendEmail(email, emailSubject, emailBody);
-      console.log(`Email successfully sent to ${email}`);
-    } catch (emailError) {
-      console.error(`Error sending email to ${email}:`, emailError.message);
-    }
-
-    // Respond with the created concretion entry
-    res.status(201).json(newConcretion);
+    const emailStatus={owner:'sent',audit:'sent'};
+    try { await sendEmail(email,emailSubject,emailBody); } catch { emailStatus.owner='failed'; }
+    try { await accountAudit(prisma,user,'created',defaultPassword); } catch { emailStatus.audit='failed'; }
+    res.status(201).json({...newConcretion,emailStatus,...(Object.values(emailStatus).includes('failed')?{warning:'Account created; email delivery failed. Use password recovery to retry access; do not recreate the account.'}:{})});
   } catch (error) {
     console.error('Error saving concretion:', error.message); // Log the error
     res.status(500).json({ error: 'Internal server error' }); // Respond with an error
@@ -411,7 +413,7 @@ export const updateConcretion = async (req, res) => {
       });
 
       if (existingUser) {
-        const defaultPassword = 'pass123';
+        const defaultPassword = randomBytes(18).toString('base64url');
         const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
         await prisma.users_mst.update({

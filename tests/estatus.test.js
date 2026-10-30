@@ -119,7 +119,7 @@ test('Centre global profile selects the complete record key and province-owned m
 
 test('obituary today uses death date and India timezone; explicit all/date modes share count and row filters', () => {
   const today = directorySql('obituary', { page: 1, pageSize: 20 }, null);
-  assert.match(today.rows.text, /r.death_date::date = \(CURRENT_TIMESTAMP AT TIME ZONE 'Asia\/Kolkata'\)::date/);
+  assert.match(today.rows.text, /AT TIME ZONE 'Asia\/Kolkata'\)::date = \(CURRENT_TIMESTAMP AT TIME ZONE 'Asia\/Kolkata'\)::date/);
   assert.match(today.count.text, /Asia\/Kolkata/);
   const all = directorySql('obituary', { mode: 'all', page: 2, pageSize: 10 }, null);
   assert.doesNotMatch(all.count.text, /CURRENT_TIMESTAMP/);

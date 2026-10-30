@@ -28,7 +28,7 @@ test('provisioning validates province, shared emails, duplicate records and priv
  rows.confreres_dtl[0].personal_mailid1='changed@example.test';await assert.rejects(service.active(result.email),e=>e.status===403);
 });
 test('member API guard permits congregation directories only and does not affect administrator routes',async()=>{
- for(const path of ['/reports','/circulars','/getusers','/estatus/confrere/export','/platform/dashboard'])assert.equal(memberRouteAllowed('GET',path),false);
+ for(const path of ['/reports','/circulars','/getusers','/platform/dashboard'])assert.equal(memberRouteAllowed('GET',path),false);
  assert.equal(memberRouteAllowed('POST','/estatus/confrere'),false);assert.equal(memberRouteAllowed('GET','/estatus/confrere/record/F1'),true);
  const {db,rows}=fixture();const service=new MemberAccessService({db});await service.provision(scope,{kind:'Confrere',code:'F1',province_code:'P1'});
  await db.memberAccess.update({where:{user_id:'alice@example.test'},data:{password_change_required:false,password_changed_at:new Date()}});

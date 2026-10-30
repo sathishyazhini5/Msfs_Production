@@ -143,6 +143,7 @@ if (!isPasswordValid) {
 
     // 🪪 JWT Payload
     const tokenData = {
+      password_change_required: Boolean(user.must_change_password),
       user_id: user.user_id,
       role_code: user.role_code,
       user_type_code,

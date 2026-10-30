@@ -32,6 +32,11 @@ function database(failCentre = false) {
         },
         async findFirst(args) { return (await this.findMany(args))[0]; },
         async findUnique(args) { return this.findFirst(args); },
+        async update({where,data}) {
+          const identity=Object.values(where)[0];
+          const record=pending[model].find(item=>Object.entries(identity).every(([key,value])=>item[key]===value));
+          if(!record)throw new Error('Missing record');Object.assign(record,data);return record;
+        },
         async create({ data }) {
           if (model === 'centre_dtl' && failCentre) throw new Error('Centre save failed');
           pending[model].push(data);
@@ -56,8 +61,8 @@ test('creates correct categories, scoped mapping and house; reuses normalized na
   const centre = db.tables.centre_dtl[0];
   assert.equal(centre.apostolate_code, db.tables.quickcode_mst.find(q => q.quick_code_type === 'apostl').quick_code);
   assert.equal(centre.community_house_code, 'CH001P01');
-  await assert.rejects(saveCentreExcelRow(db, { ...row, 'Name of the Center': 'Different', 'Office MailId 1': 'different@example.com', 'Personal1 Contact': ' 01234567890 ' }, context), /Personal1 Contact .* already exists/);
-  assert.equal(db.tables.centre_dtl.length, 2);
+  await saveCentreExcelRow(db, { ...row, 'Name of the Center': 'Different', 'Office MailId 1': 'different@example.com', 'Personal1 Contact': '1234567890' }, context);
+  assert.equal(db.tables.centre_dtl.length, 3);
 });
 
 test('failed centre rolls back all newly created masters and mappings', async () => {
@@ -71,7 +76,6 @@ test('failed centre rolls back all newly created masters and mappings', async ()
 test('missing required values, invalid numbers and unauthorized provinces fail', async () => {
   const db = database();
   await assert.rejects(saveCentreExcelRow(db, { ...row, 'Address 1': '  ' }, context), /Missing required fields: Address 1/);
-  await assert.rejects(saveCentreExcelRow(db, { ...row, 'Pin / Zipcode': '123abc' }, context), /whole number/);
   await assert.rejects(saveCentreExcelRow(db, row, { ...context, provinceCodes: ['P02'] }), /authorized scope/);
   assert.equal(db.tables.centre_dtl.length, 0);
 });
@@ -93,4 +97,50 @@ test('missing scoped division is created from the supplied name and reused', asy
   assert.equal(db.tables.division_setup_mst[0].division_code, 'D1');
   assert.equal(db.tables.centre_dtl[0].division_code, 'D1');
   assert.equal(db.tables.community_house_dtl.length, 1);
+});
+
+ test('text postal/contact formatting survives and identical retry is idempotent',async()=>{
+  const db=database();const source={...row,'Pin / Zipcode':' SW1A 1AA ','Personal1 Contact':'+044 01234 567890','Personal2 Contact':''};
+  await saveCentreExcelRow(db,source,context);await saveCentreExcelRow(db,source,context);
+  assert.equal(db.tables.centre_dtl.length,1);assert.equal(db.tables.centre_dtl[0].pin_zipcode,' SW1A 1AA ');assert.equal(db.tables.centre_dtl[0].phone1_no,'+044 01234 567890');assert.equal(db.tables.centre_dtl[0].phone2_no,'');
+ });
+ test('numeric precision loss fails before creating masters',async()=>{
+  const db=database();await assert.rejects(saveCentreExcelRow(db,{...row,'Personal1 Contact':1234567890123456},context),/precision/);assert.equal(db.tables.quickcode_mst.length,2);
+ });
+
+test('manual edit uses the same identifier validation and saves new masters atomically',async()=>{
+ const db=database();await saveCentreExcelRow(db,row,context);
+ const existing=db.tables.centre_dtl[0];const centreIdentity=Object.fromEntries(['centre_code','province_code','division_type_code','division_code'].map(key=>[key,existing[key]]));
+ await saveCentreExcelRow(db,{...row,'Pin / Zipcode':'001 234',Diocese:'New Diocese'},{...context,centreIdentity});
+ assert.equal(db.tables.centre_dtl.length,1);assert.equal(db.tables.centre_dtl[0].pin_zipcode,'001 234');
+ assert.equal(db.tables.centre_dtl[0].diocese_code,db.tables.quickcode_mst.find(item=>item.quickcode_name==='New Diocese').quick_code);
+});
+test('new countries and states use scoped dedicated masters with unknown ISD left blank',async()=>{
+ const db=database();const source={...row,Country:'New Country',State:'New State'};
+ await saveCentreExcelRow(db,source,context);
+ assert.equal(db.tables.country_mst[1].ISD_code,'');assert.equal(db.tables.state_mst[1].ISD_code,'');
+ assert.equal(db.tables.country_mst.length,2);assert.equal(db.tables.state_mst.length,2);
+ assert.equal(db.tables.centre_dtl[0].country_code,'CT001');assert.equal(db.tables.centre_dtl[0].state_code,'ST001');
+ assert.equal(db.tables.quickcode_mst.some(item=>item.quickcode_name==='New Country'),false);
+});
+test('serializable allocation conflicts retry without creating duplicate masters or Centres',async()=>{
+ const db=database();const transaction=db.$transaction.bind(db);let attempts=0;
+ db.$transaction=async(...args)=>{if(attempts++===0)throw Object.assign(new Error('Concurrent write'),{code:'P2034'});return transaction(...args);};
+ await saveCentreExcelRow(db,row,context);assert.equal(attempts,2);assert.equal(db.tables.centre_dtl.length,1);assert.equal(db.tables.community_house_dtl.length,1);
+});
+
+test('Centre data is stored as supplied: blank postal, unverified emails and shared contacts are accepted',async()=>{
+ const db=database();
+ const source={...row,'Pin / Zipcode':'','Office MailId 1':'office@example','Address 2':'Mixed  Case Place','Personal1 Contact':'93846 62915'};
+ await saveCentreExcelRow(db,source,context);
+ await saveCentreExcelRow(db,{...source,'Name of the Center':'Second Centre'},context);
+ await saveCentreExcelRow(db,source,context);
+ assert.equal(db.tables.centre_dtl.length,2);
+ const saved=db.tables.centre_dtl[0];assert.equal(saved.pin_zipcode,'');assert.equal(saved.office_mailid1,'office@example');assert.equal(saved.address2,'Mixed  Case Place');assert.equal(saved.phone1_no,'93846 62915');
+});
+test('manual edit can use another Centre contact without blocking either record',async()=>{
+ const db=database();await saveCentreExcelRow(db,row,context);await saveCentreExcelRow(db,{...row,'Name of the Center':'Second','Personal1 Contact':'77777'},context);
+ const existing=db.tables.centre_dtl[1];const centreIdentity=Object.fromEntries(['centre_code','province_code','division_type_code','division_code'].map(key=>[key,existing[key]]));
+ await saveCentreExcelRow(db,{...row,'Name of the Center':'Second'},{...context,centreIdentity});
+ assert.equal(db.tables.centre_dtl.length,2);assert.equal(db.tables.centre_dtl[1].phone1_no,'1234567890');
 });
